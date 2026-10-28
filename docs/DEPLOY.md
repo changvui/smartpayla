@@ -22,15 +22,31 @@ The workflow is already in this repo at `.github/workflows/deploy.yml`.
 
 The project is already a local git repo with one commit. You only need to add the remote and push.
 
-### Easiest: GitHub Desktop
+### Option A — VS Code (no GitHub Desktop, recommended)
 
-1. Install [GitHub Desktop](https://desktop.github.com/) and sign in.
-2. **File → Add local repository**.
-3. Choose `C:\Users\chang\Desktop\DSH\FYP\smartpayla`.
-4. Click **Publish repository**.
-5. Keep the name `smartpayla`, uncheck **Keep this code private**, publish.
+1. Install [VS Code](https://code.visualstudio.com/).
+2. Install the **Flutter** extension (it also installs **Dart**).
+3. Open the folder `C:\Users\chang\Desktop\DSH\FYP\smartpayla`.
+4. Click the **Accounts** icon (bottom-left) → **Sign in with GitHub** → authorize in the browser.
+5. Open **Source Control** (`Ctrl+Shift+G`).
+6. Click **Publish Branch** (or **Publish to GitHub**).
+7. Choose **Publish to GitHub public repository**.
+8. Name it `smartpayla` and confirm.
 
-### Or: terminal
+VS Code creates the repository and pushes the existing commits. No GitHub Desktop and no token needed.
+
+To update later: edit → Source Control → write a message → **Commit** → **Sync Changes**.
+
+### Option B — terminal with a Personal Access Token
+
+GitHub no longer accepts your account password over HTTPS. Create a token first:
+
+1. GitHub → **Settings → Developer settings → Personal access tokens → Tokens (classic)**.
+2. **Generate new token (classic)**.
+3. Scopes: tick **`repo`** and **`workflow`** (the second one is required because this repo contains `.github/workflows/deploy.yml`).
+4. Generate and copy the token.
+
+Then:
 
 ```powershell
 cd C:\Users\chang\Desktop\DSH\FYP\smartpayla
@@ -39,7 +55,16 @@ git remote add origin https://github.com/<your-username>/smartpayla.git
 git push -u origin main
 ```
 
-If Git asks for a password, GitHub requires a **Personal Access Token**, not your account password. GitHub Desktop avoids this.
+When prompted:
+
+- **Username:** your GitHub username
+- **Password:** paste the token (it is invisible while pasting)
+
+If the old bundled Git cannot connect to GitHub, use **Option A** (VS Code) instead of fighting the token setup.
+
+### Option C — GitHub Desktop
+
+If you prefer a GUI dedicated to Git: install [GitHub Desktop](https://desktop.github.com/), sign in, **File → Add local repository**, choose the project, then **Publish repository** (public, name `smartpayla`).
 
 ---
 

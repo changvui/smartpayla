@@ -162,3 +162,4 @@ test/
 | 5 | Integration with the partner's auth/customer/reminder modules, end-to-end testing |
 
 See [docs/UI_DESIGN.md](docs/UI_DESIGN.md) for the screen map and design system.
+See [docs/DEPLOY.md](docs/DEPLOY.md) for the free, permanent GitHub Pages setup with auto-deploy on every push.

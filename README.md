@@ -27,6 +27,7 @@ This repository is the implementation for the FYP report. The core increments ar
 - OpenAI-compatible LLM call with an **8-second timeout** and **static fallback templates** when there is no key, no network, or an API error.
 - Preview, copy to clipboard, and local reminder history.
 - AI base URL, model, key and default tone in **Settings → AI reminders**.
+- Browser LLM calls may be blocked by CORS depending on the provider; the fallback keeps the feature usable. For a production web demo, put the key behind a small proxy.
 - The partner module owns WhatsApp sharing and the cross-device reminder history UI.
 
 ### Cloud sync (Increment 2)

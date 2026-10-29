@@ -128,9 +128,9 @@ final transactionsProvider =
 class AppSettings {
   const AppSettings({
     required this.commissionRate,
-    this.aiBaseUrl = 'https://api.openai.com/v1',
+    this.aiBaseUrl = 'https://api.deepseek.com/v1',
     this.aiApiKey = '',
-    this.aiModel = 'gpt-4o-mini',
+    this.aiModel = 'deepseek-chat',
     this.defaultTone = ReminderTone.formal,
   });
 
@@ -174,9 +174,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
     final prefs = ref.watch(sharedPreferencesProvider);
     return AppSettings(
       commissionRate: prefs.getDouble(_commissionKey) ?? 0.05,
-      aiBaseUrl: prefs.getString(_aiBaseKey) ?? 'https://api.openai.com/v1',
+      aiBaseUrl: prefs.getString(_aiBaseKey) ?? 'https://api.deepseek.com/v1',
       aiApiKey: prefs.getString(_aiKeyKey) ?? '',
-      aiModel: prefs.getString(_aiModelKey) ?? 'gpt-4o-mini',
+      aiModel: prefs.getString(_aiModelKey) ?? 'deepseek-chat',
       defaultTone:
           ReminderToneX.fromName(prefs.getString(_toneKey) ?? 'formal'),
     );

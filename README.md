@@ -27,6 +27,7 @@ This repository is the implementation for the FYP report. The core increments ar
 - OpenAI-compatible LLM call with an **8-second timeout** and **static fallback templates** when there is no key, no network, or an API error.
 - Preview, copy to clipboard, and local reminder history.
 - AI base URL, model, key and default tone in **Settings → AI reminders**.
+- Defaults to **DeepSeek** (`https://api.deepseek.com/v1`, model `deepseek-chat`); any OpenAI-compatible endpoint can be used instead.
 - Browser LLM calls may be blocked by CORS depending on the provider; the fallback keeps the feature usable. For a production web demo, put the key behind a small proxy.
 - The partner module owns WhatsApp sharing and the cross-device reminder history UI.
 
@@ -98,6 +99,12 @@ flutter run -d chrome `
 ```
 
 Without these values the app stays in local mode and the badge shows **Local**.
+
+For the `smartpayla-fyp` project, the helper `tools/run_firebase.ps1` already contains the public web config and prompts for the test email/password:
+
+```powershell
+.\tools\run_firebase.ps1
+```
 
 ### 4. Put it on your iPhone without the App Store (PWA)
 

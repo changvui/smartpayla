@@ -48,7 +48,7 @@ class ReminderService {
               'Authorization': 'Bearer ${apiKey.trim()}',
             },
             body: jsonEncode({
-              'model': model.trim().isEmpty ? 'gpt-4o-mini' : model.trim(),
+              'model': model.trim().isEmpty ? 'deepseek-chat' : model.trim(),
               'temperature': 0.7,
               'max_tokens': 220,
               'messages': [

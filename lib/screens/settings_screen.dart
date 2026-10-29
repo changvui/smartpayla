@@ -189,7 +189,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'OpenAI-compatible endpoint. Leave the key empty to use the built-in fallback templates. The key is stored on this device only.',
+                    'DeepSeek or any OpenAI-compatible endpoint. Leave the key empty to use the built-in fallback templates. The key is stored on this device only.',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: AppColors.muted,
@@ -202,7 +202,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     keyboardType: TextInputType.url,
                     decoration: _aiDecoration(
                       'API base URL',
-                      hint: 'https://api.openai.com/v1',
+                      hint: 'https://api.deepseek.com/v1',
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -210,7 +210,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     controller: _modelController,
                     decoration: _aiDecoration(
                       'Model',
-                      hint: 'gpt-4o-mini',
+                      hint: 'deepseek-chat',
                     ),
                   ),
                   const SizedBox(height: 10),

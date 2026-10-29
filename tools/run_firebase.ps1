@@ -3,7 +3,7 @@ param(
   [string]$Password = "",
   [string]$Device = "web-server",
   [int]$Port = 8081,
-  [string]$ProxyUrl = ""
+  [string]$ProxyUrl = "https://smartpayla-ai.changvui12.workers.dev"
 )
 
 $ErrorActionPreference = "Stop"

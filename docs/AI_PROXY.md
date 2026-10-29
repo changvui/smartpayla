@@ -2,6 +2,12 @@
 
 The app is meant for **all users**, so it must not ask each person to buy a DeepSeek key. The key belongs to the app owner and lives in a small **Cloudflare Worker**; the Flutter app calls the Worker.
 
+Current deployment:
+
+```text
+https://smartpayla-ai.changvui12.workers.dev
+```
+
 ```text
 Flutter app  →  Cloudflare Worker (holds DEEPSEEK_API_KEY)  →  DeepSeek
 ```

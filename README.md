@@ -29,6 +29,7 @@ This repository is the implementation for the FYP report. The core increments ar
 - Preview, copy to clipboard, and local reminder history.
 - Settings → AI reminders only chooses the default tone; there is no API-key field for users.
 - The partner module owns WhatsApp sharing and the cross-device reminder history UI.
+- Current proxy: `https://smartpayla-ai.changvui12.workers.dev` (already wired into the local runner and the GitHub Actions build).
 - Worker source: `server/worker.js`. Deployment guide: [docs/AI_PROXY.md](docs/AI_PROXY.md).
 
 ### Cloud sync (Increment 2)

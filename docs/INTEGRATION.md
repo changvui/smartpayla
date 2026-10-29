@@ -10,12 +10,12 @@ The partner module should depend on the providers in `lib/integration/partner_br
 |---|---|---|
 | Transaction CRUD, balance, payment status, aging | Transaction module | Firestore path `users/{userId}/transactions/{transactionId}` |
 | Commission calculation | Transaction module | Rate comes from shared settings; engine is pure Dart |
-| LLM prompt + reminder text + fallback | Transaction module | Text is exposed for the partner's reminder UI |
+| AI proxy + prompt + reminder text + fallback | Transaction module | The app-owned key lives in the Cloudflare Worker, never in the client |
 | Authentication and UID | Partner module | Pass the UID into the transaction scope |
 | Customer profiles | Partner module | Transaction stores a denormalised `customerName` for the ledger |
 | OCR / receipt images | Partner module | Attach a receipt reference to a transaction if needed |
 | Reminder history UI / WhatsApp share | Partner module | Consume the generated text |
-| API key, tone, commission rate settings | Shared | This build stores them locally; the integrated build can move them to the partner Settings screen |
+| Default tone, commission rate settings | Shared | This build stores the tone locally; the integrated build can move it to the partner Settings screen |
 
 ## 2. Firestore data contract
 

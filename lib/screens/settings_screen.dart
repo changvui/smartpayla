@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/firebase_config.dart';
 import '../models/reminder.dart';
+import '../services/reminder_service.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -18,7 +19,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _rateController;
-  late final TextEditingController _apiKeyController;
   late ReminderTone _tone;
 
   @override
@@ -27,7 +27,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.read(settingsProvider);
     _rateController =
         TextEditingController(text: _formatRate(settings.commissionPercent));
-    _apiKeyController = TextEditingController(text: settings.aiApiKey);
     _tone = settings.defaultTone;
   }
 
@@ -39,7 +38,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     _rateController.dispose();
-    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -183,7 +181,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Reminders are generated with DeepSeek (deepseek-chat). Leave the key empty to use the built-in fallback templates. The key is stored on this device only.',
+                    'AI reminders are included for every user. No DeepSeek account or API key is needed; the app calls the SmartPayLA AI service.',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: AppColors.muted,
@@ -192,51 +190,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 11,
-                    ),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.06),
+                      color: (ReminderService.isConfigured
+                              ? AppColors.green
+                              : AppColors.amber)
+                          .withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border),
+                      border: Border.all(
+                        color: (ReminderService.isConfigured
+                                ? AppColors.green
+                                : AppColors.amber)
+                            .withValues(alpha: 0.25),
+                      ),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
                         Icon(
-                          Icons.auto_awesome_rounded,
-                          size: 18,
-                          color: AppColors.primary,
+                          ReminderService.isConfigured
+                              ? Icons.cloud_done_rounded
+                              : Icons.cloud_off_rounded,
+                          size: 19,
+                          color: ReminderService.isConfigured
+                              ? AppColors.green
+                              : AppColors.amber,
                         ),
-                        SizedBox(width: 8),
-                        Text(
-                          'DeepSeek',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        Spacer(),
-                        Text(
-                          'deepseek-chat',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: AppColors.muted,
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                ReminderService.isConfigured
+                                    ? 'SmartPayLA AI is on'
+                                    : 'AI service not configured',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: ReminderService.isConfigured
+                                      ? AppColors.green
+                                      : AppColors.amber,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                ReminderService.isConfigured
+                                    ? 'DeepSeek · deepseek-chat · no key needed'
+                                    : 'Reminders use the built-in templates until the proxy URL is configured.',
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  color: AppColors.muted,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _apiKeyController,
-                    obscureText: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: _aiDecoration(
-                      'DeepSeek API key',
-                      hint: 'sk-...',
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -260,7 +270,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: _saveAi,
-                      child: const Text('Save AI settings'),
+                      child: const Text('Save default tone'),
                     ),
                   ),
                 ],
@@ -396,13 +406,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _saveAi() async {
-    await ref
-        .read(settingsProvider.notifier)
-        .setAiKey(_apiKeyController.text);
     await ref.read(settingsProvider.notifier).setDefaultTone(_tone);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('DeepSeek settings saved.')),
+      const SnackBar(content: Text('Default reminder tone saved.')),
     );
   }
 

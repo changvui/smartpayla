@@ -128,27 +128,21 @@ final transactionsProvider =
 class AppSettings {
   const AppSettings({
     required this.commissionRate,
-    this.aiApiKey = '',
     this.defaultTone = ReminderTone.formal,
   });
 
   /// 0.05 = 5%.
   final double commissionRate;
-  final String aiApiKey;
   final ReminderTone defaultTone;
 
   double get commissionPercent => commissionRate * 100;
 
-  bool get aiConfigured => aiApiKey.trim().isNotEmpty;
-
   AppSettings copyWith({
     double? commissionRate,
-    String? aiApiKey,
     ReminderTone? defaultTone,
   }) {
     return AppSettings(
       commissionRate: commissionRate ?? this.commissionRate,
-      aiApiKey: aiApiKey ?? this.aiApiKey,
       defaultTone: defaultTone ?? this.defaultTone,
     );
   }
@@ -156,7 +150,6 @@ class AppSettings {
 
 class SettingsNotifier extends Notifier<AppSettings> {
   static const _commissionKey = 'smartpayla_commission_rate';
-  static const _aiKeyKey = 'smartpayla_ai_key';
   static const _toneKey = 'smartpayla_default_tone';
 
   @override
@@ -164,7 +157,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
     final prefs = ref.watch(sharedPreferencesProvider);
     return AppSettings(
       commissionRate: prefs.getDouble(_commissionKey) ?? 0.05,
-      aiApiKey: prefs.getString(_aiKeyKey) ?? '',
       defaultTone:
           ReminderToneX.fromName(prefs.getString(_toneKey) ?? 'formal'),
     );
@@ -175,13 +167,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
     final prefs = ref.read(sharedPreferencesProvider);
     await prefs.setDouble(_commissionKey, safe);
     state = state.copyWith(commissionRate: safe);
-  }
-
-  Future<void> setAiKey(String apiKey) async {
-    final prefs = ref.read(sharedPreferencesProvider);
-    final safeKey = apiKey.trim();
-    await prefs.setString(_aiKeyKey, safeKey);
-    state = state.copyWith(aiApiKey: safeKey);
   }
 
   Future<void> setDefaultTone(ReminderTone tone) async {

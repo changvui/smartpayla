@@ -125,7 +125,7 @@ Validation:
 **Purpose:** generate a payment reminder for an open/overdue transaction with as little typing as possible.
 
 - Hero: “AI payment reminders” with the fallback promise.
-- If no API key: amber banner explaining that static templates are being used and where to add the key.
+- If the AI proxy is not configured: amber banner explaining that the built-in templates are being used.
 - Customer dropdown: open transactions, sorted by days overdue and balance.
 - Tone segmented control: **Formal / Friendly / Urgent**.
 - **Generate reminder** button with spinner; an 8-second API timeout.
@@ -148,7 +148,7 @@ Validation:
 
 - Profile card (name, student ID, local/sync status).
 - Commission rate field (percent) with save.
-- AI reminders: fixed DeepSeek provider (`deepseek-chat`), API key (obscured), default tone, save.
+- AI reminders: SmartPayLA AI status (shared DeepSeek proxy, no user key), default tone, save.
 - Cloud sync: status badge, connected user, Sync now, or a local-only explanation.
 - Data: Load demo data, Clear all transactions.
 - About: build, framework, currency, cloud sync, AI reminders.
@@ -162,7 +162,7 @@ These are not implemented in this module but are reserved in the navigation mode
 - **Customers:** list, profile, add/edit, transaction history.
 - **Receipts:** camera/gallery, OCR extraction, attach image to a transaction.
 - **Reminder management:** message history, copy, share to WhatsApp.
-- **Settings (shared):** API key, default tone, commission rate, theme.
+- **Settings (shared):** default tone, commission rate, theme.
 
 The integration contract is the read-only Riverpod state in `lib/integration/partner_bridge.dart`: transactions, commission report, overdue accounts, reminder history and payload helpers.
 

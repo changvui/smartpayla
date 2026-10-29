@@ -23,11 +23,10 @@ Transaction overdueTransaction() {
 }
 
 void main() {
-  test('no API key uses a static fallback with the balance', () async {
-    final result = await ReminderService().generate(
+  test('no proxy uses a static fallback with the balance', () async {
+    final result = await ReminderService(proxyUrl: '').generate(
       transaction: overdueTransaction(),
       tone: ReminderTone.formal,
-      apiKey: '',
     );
 
     expect(result.usedFallback, isTrue);
@@ -36,24 +35,20 @@ void main() {
     expect(result.text, contains('10 days'));
   });
 
-  test('successful API response is used as-is', () async {
+  test('proxy response is used as-is', () async {
     final service = ReminderService(
+      proxyUrl: 'https://ai.smartpayla.test',
       client: MockClient((request) async {
-        expect(request.url.path, '/v1/chat/completions');
+        expect(request.url.path, '/reminder');
         expect(
           request.headers['Authorization'] ?? request.headers['authorization'],
-          'Bearer test-key',
+          isNull,
         );
         final body = jsonDecode(request.body) as Map<String, dynamic>;
-        expect(body['model'], 'deepseek-chat');
+        expect(body['tone'], 'friendly');
+        expect(body['customerName'], 'Ahmad Faizal');
         return http.Response(
-          jsonEncode({
-            'choices': [
-              {
-                'message': {'content': 'Hi Ahmad, a custom reminder.'}
-              }
-            ]
-          }),
+          jsonEncode({'text': 'Hi Ahmad, a custom reminder.'}),
           200,
         );
       }),
@@ -62,22 +57,21 @@ void main() {
     final result = await service.generate(
       transaction: overdueTransaction(),
       tone: ReminderTone.friendly,
-      apiKey: 'test-key',
     );
 
     expect(result.usedFallback, isFalse);
     expect(result.text, 'Hi Ahmad, a custom reminder.');
   });
 
-  test('API error falls back and records the reason', () async {
+  test('proxy error falls back and records the reason', () async {
     final service = ReminderService(
+      proxyUrl: 'https://ai.smartpayla.test',
       client: MockClient((_) async => http.Response('nope', 500)),
     );
 
     final result = await service.generate(
       transaction: overdueTransaction(),
       tone: ReminderTone.urgent,
-      apiKey: 'test-key',
     );
 
     expect(result.usedFallback, isTrue);

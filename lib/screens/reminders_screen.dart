@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/reminder.dart';
 import '../models/transaction.dart';
+import '../services/reminder_service.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -33,7 +34,6 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
   Widget build(BuildContext context) {
     final transactions =
         ref.watch(transactionsProvider).valueOrNull ?? const <Transaction>[];
-    final settings = ref.watch(settingsProvider);
     final history = ref.watch(reminderHistoryProvider).valueOrNull ??
         const <ReminderRecord>[];
 
@@ -127,7 +127,7 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
                 ],
               ),
             ),
-            if (!settings.aiConfigured) ...[
+            if (!ReminderService.isConfigured) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -149,7 +149,7 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'No DeepSeek API key configured. Reminders will use the built-in templates. Add a key in Settings → AI reminders to use DeepSeek.',
+                        'The SmartPayLA AI service is not configured in this build. Reminders use the built-in templates.',
                         style: TextStyle(
                           fontSize: 11,
                           color: AppColors.amber,
@@ -326,7 +326,6 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
   }
 
   Future<void> _generate(Transaction transaction) async {
-    final settings = ref.read(settingsProvider);
     setState(() {
       _generating = true;
       _result = null;
@@ -334,7 +333,6 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
     final result = await ref.read(reminderServiceProvider).generate(
           transaction: transaction,
           tone: _tone,
-          apiKey: settings.aiApiKey,
         );
     if (!mounted) return;
     setState(() {

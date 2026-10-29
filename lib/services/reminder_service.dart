@@ -7,89 +7,79 @@ import 'package:intl/intl.dart';
 import '../models/reminder.dart';
 import '../models/transaction.dart';
 
+/// Calls the SmartPayLA AI proxy. The app never holds a DeepSeek key, so every
+/// user can use the reminder feature without buying their own API account.
 class ReminderService {
-  ReminderService({http.Client? client}) : _client = client ?? http.Client();
+  ReminderService({http.Client? client, String? proxyUrl})
+      : _client = client ?? http.Client(),
+        proxyUrl = (proxyUrl ?? defaultProxyUrl).trim();
 
-  static const endpoint = 'https://api.deepseek.com/v1/chat/completions';
-  static const model = 'deepseek-chat';
+  /// Set at build time:
+  /// --dart-define=REMINDER_PROXY_URL=https://smartpayla-ai.example.workers.dev
+  static const defaultProxyUrl =
+      String.fromEnvironment('REMINDER_PROXY_URL');
+
+  static bool get isConfigured => defaultProxyUrl.trim().isNotEmpty;
 
   final http.Client _client;
+  final String proxyUrl;
 
   Future<ReminderResult> generate({
     required Transaction transaction,
     required ReminderTone tone,
-    required String apiKey,
   }) async {
     final fallback = _fallback(transaction, tone);
-    if (apiKey.trim().isEmpty) {
+    if (proxyUrl.isEmpty) {
       return ReminderResult(
         text: fallback,
         tone: tone,
         usedFallback: true,
-        error: 'No DeepSeek API key configured',
+        error: 'AI proxy not configured',
       );
     }
 
     try {
+      final base = proxyUrl.replaceAll(RegExp(r'/+$'), '');
+      final endpoint = base.endsWith('/reminder')
+          ? base
+          : '$base/reminder';
       final response = await _client
           .post(
             Uri.parse(endpoint),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${apiKey.trim()}',
-            },
+            headers: const {'Content-Type': 'application/json'},
             body: jsonEncode({
-              'model': model,
-              'temperature': 0.7,
-              'max_tokens': 220,
-              'messages': [
-                {
-                  'role': 'system',
-                  'content': _systemPrompt(tone),
-                },
-                {
-                  'role': 'user',
-                  'content': _userPrompt(transaction),
-                },
-              ],
+              'customerName': transaction.customerName,
+              'item': transaction.itemDescription,
+              'amount': transaction.balanceDue,
+              'dueDate': DateFormat('yyyy-MM-dd').format(transaction.dueDate),
+              'daysOverdue': transaction.daysOverdue,
+              'tone': tone.name,
             }),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 12));
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return ReminderResult(
           text: fallback,
           tone: tone,
           usedFallback: true,
-          error: 'API ${response.statusCode}',
+          error: 'AI ${response.statusCode}',
         );
       }
 
       final decoded = jsonDecode(response.body);
-      String? content;
-      if (decoded is Map) {
-        final choices = decoded['choices'];
-        if (choices is List && choices.isNotEmpty) {
-          final first = choices.first;
-          if (first is Map) {
-            final message = first['message'];
-            if (message is Map) {
-              content = message['content']?.toString();
-            }
-          }
-        }
-      }
-      if (content == null || content.trim().isEmpty) {
+      final text = decoded is Map ? decoded['text']?.toString() : null;
+      if (text == null || text.trim().isEmpty) {
         return ReminderResult(
           text: fallback,
           tone: tone,
           usedFallback: true,
-          error: 'Empty API response',
+          error: 'Empty AI response',
         );
       }
 
       return ReminderResult(
-        text: _clean(content),
+        text: text.trim(),
         tone: tone,
         usedFallback: false,
       );
@@ -98,7 +88,7 @@ class ReminderService {
         text: fallback,
         tone: tone,
         usedFallback: true,
-        error: 'API timeout',
+        error: 'AI timeout',
       );
     } catch (error) {
       return ReminderResult(
@@ -108,31 +98,6 @@ class ReminderService {
         error: error.toString(),
       );
     }
-  }
-
-  String _systemPrompt(ReminderTone tone) {
-    final toneText = switch (tone) {
-      ReminderTone.formal => 'formal, polite and businesslike',
-      ReminderTone.friendly => 'warm, friendly and conversational',
-      ReminderTone.urgent => 'firm and urgent but still respectful',
-    };
-    return 'You write short payment reminder messages for a Malaysian sales agent. '
-        'The tone must be $toneText. Include the customer name, the outstanding '
-        'amount, the item, and how many days overdue. Do not threaten or shame '
-        'the customer. Keep it under 75 words. Return only the message, with no '
-        'headings or quotation marks.';
-  }
-
-  String _userPrompt(Transaction transaction) {
-    final item = transaction.itemDescription.trim().isEmpty
-        ? 'the recent purchase'
-        : transaction.itemDescription.trim();
-    return 'Customer: ${transaction.customerName}\n'
-        'Item: $item\n'
-        'Outstanding amount: ${_money(transaction.balanceDue)}\n'
-        'Due date: ${_date(transaction.dueDate)}\n'
-        'Days overdue: ${transaction.daysOverdue}\n'
-        'Write the reminder now.';
   }
 
   String _fallback(Transaction transaction, ReminderTone tone) {
@@ -162,14 +127,6 @@ class ReminderService {
             'balance as soon as possible, or contact me to arrange a payment '
             'plan. Thank you.';
     }
-  }
-
-  String _clean(String text) {
-    var result = text.trim();
-    if (result.startsWith('"') && result.endsWith('"') && result.length > 1) {
-      result = result.substring(1, result.length - 1).trim();
-    }
-    return result;
   }
 
   String _money(double amount) =>

@@ -2,7 +2,8 @@ param(
   [string]$Email = "",
   [string]$Password = "",
   [string]$Device = "web-server",
-  [int]$Port = 8081
+  [int]$Port = 8081,
+  [string]$ProxyUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,6 +49,10 @@ $runArgs += @(
   "--dart-define=DEMO_AUTH_PASSWORD=$Password",
   "--dart-define=DEMO=true"
 )
+
+if (-not [string]::IsNullOrWhiteSpace($ProxyUrl)) {
+  $runArgs += "--dart-define=REMINDER_PROXY_URL=$ProxyUrl"
+}
 
 Write-Host "Starting SmartPayLA with Firebase + demo auth..." -ForegroundColor Cyan
 Write-Host "Project: smartpayla-fyp  |  user: $Email" -ForegroundColor DarkGray

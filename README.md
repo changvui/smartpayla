@@ -24,11 +24,12 @@ This repository is the implementation for the FYP report. The core increments ar
 
 ### AI reminders (Increment 4)
 - Pick an open/overdue customer, choose **Formal / Friendly / Urgent**, generate a reminder.
-- **DeepSeek-only** chat-completions call (`deepseek-chat`) with an **8-second timeout** and **static fallback templates** when there is no key, no network, or an API error.
+- **Shared AI proxy**: every user can generate reminders without buying a DeepSeek key. The app calls a Cloudflare Worker; the Worker holds `DEEPSEEK_API_KEY` and calls `deepseek-chat`.
+- **12-second timeout** and **static fallback templates** when the proxy is unavailable or returns an error.
 - Preview, copy to clipboard, and local reminder history.
-- DeepSeek API key and default tone in **Settings → AI reminders**. The endpoint and model are fixed; there is no other AI provider to configure.
-- Browser calls to DeepSeek support CORS from the local web origin; the fallback keeps the feature usable anywhere.
+- Settings → AI reminders only chooses the default tone; there is no API-key field for users.
 - The partner module owns WhatsApp sharing and the cross-device reminder history UI.
+- Worker source: `server/worker.js`. Deployment guide: [docs/AI_PROXY.md](docs/AI_PROXY.md).
 
 ### Cloud sync (Increment 2)
 - Offline-first architecture: local storage is the cache; Firestore is optional.

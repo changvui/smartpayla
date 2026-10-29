@@ -120,27 +120,43 @@ Validation:
 - Details: status, aging, due date, finish date, claim expiry, invoice/cash-bill references, last updated.
 - Actions: **Update payment** (bottom sheet), **Edit transaction**, **Delete transaction**.
 
-### 4.5 Reminders (Increment 4)
+### 4.5 Reminders
 
-Current screen is a labelled preview:
+**Purpose:** generate a payment reminder for an open/overdue transaction with as little typing as possible.
 
-- Hero explaining tone-aware reminders + fallback.
-- Tone chips: Formal / Friendly / Urgent.
-- Overdue count and amount from the live ledger.
-- Disabled **Generate reminder** button with “coming soon” snackbar.
-- A short “what this screen will do” list.
+- Hero: “AI payment reminders” with the fallback promise.
+- If no API key: amber banner explaining that static templates are being used and where to add the key.
+- Customer dropdown: open transactions, sorted by days overdue and balance.
+- Tone segmented control: **Formal / Friendly / Urgent**.
+- **Generate reminder** button with spinner; an 8-second API timeout.
+- Preview card: generated text, AI/Fallback badge, copy button, fallback reason.
+- History: last reminders with customer, tone, timestamp and a three-line preview; clear action.
+- The partner module owns WhatsApp sharing and the cross-device history list.
 
-### 4.6 Settings
+### 4.6 Commission
 
-- Profile card (name, student ID, local mode).
+**Purpose:** answer “how much commission did I earn, and from which sales?”.
+
+- Hero: commission earned at the current rate, paid-sale count.
+- Mini stats: potential commission from open sales, paid-sale count.
+- Month dropdown: All time plus every month that has a transaction.
+- Per-sale lines: customer, sale amount, bill date, commission amount, rate.
+- Empty state explains that commission is counted only when a transaction is fully paid.
+- The rate itself is edited in Settings; every view recalculates immediately.
+
+### 4.7 Settings
+
+- Profile card (name, student ID, local/sync status).
 - Commission rate field (percent) with save.
+- AI reminders: API base URL, model, API key (obscured), default tone, save.
+- Cloud sync: status badge, connected user, Sync now, or a local-only explanation.
 - Data: Load demo data, Clear all transactions.
 - About: build, framework, currency, cloud sync, AI reminders.
 - Note that auth/customers/OCR/reminder delivery belong to the partner module.
 
 ## 5. Partner-module screens (future)
 
-These are not part of Increment 1 but are reserved in the navigation model:
+These are not implemented in this module but are reserved in the navigation model:
 
 - **Auth:** login, register, forgot password (Firebase Authentication).
 - **Customers:** list, profile, add/edit, transaction history.
@@ -148,12 +164,12 @@ These are not part of Increment 1 but are reserved in the navigation model:
 - **Reminder management:** message history, copy, share to WhatsApp.
 - **Settings (shared):** API key, default tone, commission rate, theme.
 
-The integration contract is the Riverpod state exposed by the transaction module: transaction list, selected transaction, generated reminder text, commission metrics.
+The integration contract is the read-only Riverpod state in `lib/integration/partner_bridge.dart`: transactions, commission report, overdue accounts, reminder history and payload helpers.
 
 ## 6. Responsive behaviour
 
 - Phone-first single column.
-- Content is capped at 560 px and centred on tablets/browsers; no two-column desktop layout in Increment 1.
+- Content is capped at 560 px and centred on tablets/browsers; no two-column desktop layout in this module.
 - Forms and lists remain scrollable at 320 px width; buttons use ellipsis/flexible labels.
 - Web build is a PWA: standalone display, portrait orientation, teal theme colour.
 
@@ -161,8 +177,8 @@ The integration contract is the Riverpod state exposed by the transaction module
 
 | Increment | UI delivered |
 |---|---|
-| 1 | Home, Transactions, Form, Detail, Reminders placeholder, Settings; local data |
-| 2 | Firestore sync status, pull-to-refresh, dashboard hardening |
-| 3 | Commission history/month view, rate changes |
-| 4 | Reminder composer, tone selection, preview, copy/share, fallback banner |
-| 5 | Auth, Customers, Receipts, Reminder management, integration polish |
+| 1 | Home, Transactions, Form, Detail, Settings; local data; bill-month filter |
+| 2 | Sync badge, cloud sync card, Firestore-backed repository, pull-to-refresh |
+| 3 | Commission screen, month view, per-sale lines, rate-driven recalculation |
+| 4 | Reminder composer, tone selection, preview, copy, fallback banner, history |
+| 5 | Partner contract providers and integration documentation |

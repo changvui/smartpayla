@@ -469,9 +469,8 @@ class _BreakdownCard extends StatelessWidget {
           InfoRow(
             label: 'Balance due',
             value: money(transaction.balanceDue),
-            valueColor: transaction.balanceDue > 0
-                ? AppColors.red
-                : AppColors.green,
+            valueColor:
+                transaction.balanceDue > 0 ? AppColors.red : AppColors.green,
           ),
         ],
       ),

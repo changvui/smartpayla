@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'commission_screen.dart';
 import 'home_screen.dart';
 import 'reminders_screen.dart';
 import 'settings_screen.dart';
@@ -31,6 +32,18 @@ class _HomeShellState extends State<HomeShell> {
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => const TransactionFormScreen(),
+          ),
+        );
+      });
+    }
+
+    // Used by the design preview/screenshots: /?screen=commission
+    if (Uri.base.queryParameters['screen'] == 'commission') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const CommissionScreen(),
           ),
         );
       });

@@ -5,7 +5,9 @@ import '../models/transaction.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import '../widgets/sync_badge.dart';
 import '../widgets/transaction_tile.dart';
+import 'commission_screen.dart';
 import 'transaction_detail_screen.dart';
 import 'transaction_form_screen.dart';
 
@@ -34,6 +36,7 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+          const SyncBadge(),
           IconButton(
             tooltip: 'Refresh',
             onPressed: () => ref.read(transactionsProvider.notifier).refresh(),
@@ -49,8 +52,7 @@ class HomeScreen extends ConsumerWidget {
           title: 'Could not load your ledger',
           message: '$error',
           action: FilledButton(
-            onPressed: () =>
-                ref.read(transactionsProvider.notifier).refresh(),
+            onPressed: () => ref.read(transactionsProvider.notifier).refresh(),
             child: const Text('Try again'),
           ),
         ),
@@ -125,6 +127,11 @@ class _HomeContent extends StatelessWidget {
                     hint: '${percent(commissionRate)} on paid sales',
                     icon: Icons.percent_rounded,
                     accent: AppColors.green,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const CommissionScreen(),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -165,12 +172,12 @@ class _HomeContent extends StatelessWidget {
                     label: 'Generate reminder',
                     onTap: onOpenReminders ??
                         () => ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'AI reminders arrive in Increment 4. The transaction ledger is ready first.',
+                              const SnackBar(
+                                content: Text(
+                                  'AI reminders arrive in Increment 4. The transaction ledger is ready first.',
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
                   ),
                 ),
               ],
@@ -181,10 +188,11 @@ class _HomeContent extends StatelessWidget {
               actionLabel: transactions.isEmpty ? null : 'See all',
               onAction: onOpenTransactions ??
                   () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Open the Transactions tab to see the full list.'),
-                    ),
-                  ),
+                        const SnackBar(
+                          content: Text(
+                              'Open the Transactions tab to see the full list.'),
+                        ),
+                      ),
             ),
             if (recent.isEmpty)
               AppCard(
@@ -423,6 +431,7 @@ class _StatCard extends StatelessWidget {
     required this.hint,
     required this.icon,
     required this.accent,
+    this.onTap,
   });
 
   final String label;
@@ -430,11 +439,13 @@ class _StatCard extends StatelessWidget {
   final String hint;
   final IconData icon;
   final Color accent;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
       padding: const EdgeInsets.all(14),
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

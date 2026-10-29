@@ -65,6 +65,11 @@ class LocalTransactionRepository implements TransactionRepository {
     await _prefs.remove(_storageKey);
   }
 
+  /// Replaces the local cache with the merged cloud/local list.
+  Future<void> replaceAll(List<Transaction> items) async {
+    await _write(items);
+  }
+
   Future<void> _write(List<Transaction> items) async {
     final encoded = jsonEncode(items.map((e) => e.toJson()).toList());
     await _prefs.setString(_storageKey, encoded);

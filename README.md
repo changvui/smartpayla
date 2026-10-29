@@ -1,28 +1,44 @@
 # SmartPayLA
 
-A Flutter prototype of the **Core Transaction Engine** for SmartPayLA: a field ledger that helps sales agents record credit sales, track balances and debt aging, and see commission earned.
+A Flutter prototype of the **Core Transaction Engine and AI-Powered Reminder Generation** module for SmartPayLA: a field ledger that helps sales agents record credit sales, track balances and debt aging, verify commission, and generate payment reminders.
 
-This repository is the implementation for the FYP report. It is built incrementally; **Increment 1** is complete and runnable.
+This repository is the implementation for the FYP report. The core increments are complete and runnable; the partner integration contract is documented.
 
-![Home](docs/screenshots/home.png)
+![SmartPayLA](docs/screenshots/overview.png)
 
-## Increment 1 — what works
+## What works
 
+### Transactions and dashboard
 - Create, edit and delete a transaction (customer, item, total, advance, due date, finish date, claim expiry, invoice/cash-bill reference).
 - Automatic **balance due** (`total - advance`) and **payment status** (Unpaid / Partial / Paid).
-- **Overdue** is derived from the due date; the UI shows the days overdue and the aging bucket (0–30, 31–60, 60+ days).
+- **Overdue** is derived from the due date; the UI shows days overdue and the aging bucket (0–30, 31–60, 60+ days).
 - Search by customer, item, invoice or cash-bill number; filter by status/overdue.
 - **Bill month/year filter** (cash-bill date → invoice date → record date), with newest bill first inside the selected month.
-- Home dashboard: total outstanding, commission earned, collected amount, aging breakdown, recent transactions.
-- Detail screen: payment breakdown, status update, record a partial payment, edit and delete.
-- Commission rate setting (default 5%) persisted locally.
-- Local persistence through `shared_preferences`; the app survives a browser refresh or app restart.
-- Demo mode with five sample transactions.
-- 12 unit/widget tests; `flutter analyze` is clean.
+- Home dashboard: total outstanding, commission, collected amount, aging breakdown, recent transactions.
 
-| Home | Transactions | New transaction |
-|---|---|---|
-| ![](docs/screenshots/home.png) | ![](docs/screenshots/transactions.png) | ![](docs/screenshots/new_transaction.png) |
+### Commission (Increment 3)
+- Commission engine computes earned commission on fully paid transactions and potential commission on open sales.
+- **Commission screen** with all-time/monthly view, per-sale lines, rate display.
+- Commission rate in Settings recalculates every view instantly.
+- Pure-Dart engine in `lib/services/commission_engine.dart` with unit tests.
+
+### AI reminders (Increment 4)
+- Pick an open/overdue customer, choose **Formal / Friendly / Urgent**, generate a reminder.
+- OpenAI-compatible LLM call with an **8-second timeout** and **static fallback templates** when there is no key, no network, or an API error.
+- Preview, copy to clipboard, and local reminder history.
+- AI base URL, model, key and default tone in **Settings → AI reminders**.
+- The partner module owns WhatsApp sharing and the cross-device reminder history UI.
+
+### Cloud sync (Increment 2)
+- Offline-first architecture: local storage is the cache; Firestore is optional.
+- `users/{userId}/transactions/{transactionId}` Firestore layout, merge by `updatedAt`, real-time snapshot listener, and a **sync badge** (Local / Syncing / Synced / Sync error).
+- Runs fully in local mode without Firebase. Add `FIREBASE_*` defines to enable sync.
+- See [docs/FIREBASE.md](docs/FIREBASE.md).
+
+### Partner integration (Increment 5)
+- Read-only Riverpod providers for transactions, commission, overdue accounts and reminder history.
+- Payload helpers and a Firestore/JSON data contract.
+- See [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Run it
 
@@ -31,13 +47,9 @@ This repository is the implementation for the FYP report. It is built incrementa
 **Recommended: VS Code + Flutter SDK** (lighter than Android Studio).
 
 1. Install [VS Code](https://code.visualstudio.com/).
-2. In VS Code, install the **Flutter** extension (it also installs **Dart**).
+2. Install the **Flutter** extension (it also installs **Dart**).
 3. Install the Flutter SDK from <https://docs.flutter.dev/get-started/install/windows>.
-4. Add `flutter\bin` to your `PATH`, then check:
-
-```powershell
-flutter doctor
-```
+4. Add `flutter\bin` to your `PATH`, then run `flutter doctor`.
 
 On this machine the SDK is already extracted at:
 
@@ -51,7 +63,7 @@ so the session `PATH` needs:
 $env:Path = "C:\Users\chang\Desktop\DSH\flutter\bin;" + $env:Path
 ```
 
-Android Studio is **optional**. Install it only when you want an Android emulator or a Play Store build. For UI work and demos, Chrome is enough.
+Android Studio is **optional**. Install it only for an Android emulator or Play Store build. For UI work and demos, Chrome is enough.
 
 ### 2. Run the app
 
@@ -67,16 +79,23 @@ With sample data:
 flutter run -d chrome --dart-define=DEMO=true
 ```
 
-The demo flag only seeds data when the local ledger is empty. Clear it from **Settings → Clear all transactions** or use a fresh browser profile.
+The demo flag only seeds data when the local ledger is empty.
 
-### 3. Run on an Android emulator (optional)
+### 3. Enable Firestore (optional)
 
-Install Android Studio, open **Device Manager**, create a Pixel emulator, start it, then:
+Follow [docs/FIREBASE.md](docs/FIREBASE.md). Short version:
 
 ```powershell
-flutter devices
-flutter run -d emulator-5554
+flutter run -d chrome `
+  --dart-define=FIREBASE_API_KEY=... `
+  --dart-define=FIREBASE_APP_ID=... `
+  --dart-define=FIREBASE_MESSAGING_SENDER_ID=... `
+  --dart-define=FIREBASE_PROJECT_ID=... `
+  --dart-define=APP_USER_ID=demo-agent `
+  --dart-define=DEMO=true
 ```
+
+Without these values the app stays in local mode and the badge shows **Local**.
 
 ### 4. Put it on your iPhone without the App Store (PWA)
 
@@ -88,17 +107,9 @@ cd build\web
 python -m http.server 8080 --bind 0.0.0.0
 ```
 
-Find your PC's Wi-Fi IP with `ipconfig`, then on the iPhone (same Wi-Fi):
+Open `http://<PC-IP>:8080` in **Safari**, then **Share → Add to Home Screen**. Android Chrome uses **Add to Home screen / Install app**.
 
-1. Open `http://<PC-IP>:8080` in **Safari**.
-2. Tap **Share → Add to Home Screen**.
-3. It opens full-screen like an app; no App Store, no 7-day expiry.
-
-For a public demo, deploy `build/web` to Firebase Hosting, Netlify or GitHub Pages and open that URL on the iPhone.
-
-**No server needed:** drag `build/smartpayla-web.zip` into <https://app.netlify.com/drop>. Netlify gives a permanent HTTPS URL that works on iPhone Safari and Android Chrome, even when this PC is off.
-
-**Native iOS install** (if the faculty insists): you need a Mac with Xcode. A free Apple ID can sideload the app for 7 days; TestFlight/Ad Hoc needs the Apple Developer Program. The Flutter code is already cross-platform, so no rewrite is needed — only a macOS build machine.
+For a permanent free link that updates on every push, see [docs/DEPLOY.md](docs/DEPLOY.md) (GitHub Pages + Actions). The workflow is at `.github/workflows/deploy.yml`.
 
 ## Test and check
 
@@ -107,59 +118,71 @@ flutter analyze
 flutter test
 ```
 
-Expected: `No issues found!` and `All tests passed!` (12 tests).
+Expected: `No issues found!` and **19 tests passed**.
 
 ## Project structure
 
 ```text
 lib/
-  main.dart                       app bootstrap + optional demo seed
-  app.dart                        MaterialApp
-  theme.dart                      colours and Material 3 theme
-  models/transaction.dart         Transaction, PaymentStatus, AgingBucket
-  data/transaction_repository.dart repository interface + local storage
-  state/providers.dart            Riverpod providers and notifiers
+  main.dart                        app bootstrap, optional Firebase init, demo seed
+  app.dart                         MaterialApp
+  theme.dart                       colours and Material 3 theme
+  models/
+    transaction.dart               Transaction, PaymentStatus, AgingBucket
+    reminder.dart                  ReminderTone, ReminderResult, ReminderRecord
+  data/
+    transaction_repository.dart    local repository + demo seed
+    firestore_transaction_repository.dart
+    firebase_config.dart           dart-define config + runtime flag
+  services/
+    commission_engine.dart         pure commission calculation
+    reminder_service.dart          LLM call + fallback templates
+    cloud_sync_service.dart        local/Firestore merge + sync status
+  state/providers.dart             Riverpod providers and notifiers
+  integration/partner_bridge.dart  read-only partner contract
   screens/
-    home_shell.dart               bottom navigation shell
-    home_screen.dart              dashboard
-    transactions_screen.dart      list, search, filters, bill-month picker
-    transaction_form_screen.dart  add/edit form + validation
+    home_shell.dart                bottom navigation shell
+    home_screen.dart               dashboard
+    transactions_screen.dart       list, search, filters, bill-month picker
+    transaction_form_screen.dart   add/edit form + validation
     transaction_detail_screen.dart detail, payment update, delete
-    reminders_screen.dart         Increment 4 placeholder
-    settings_screen.dart          commission rate, demo data, about
+    commission_screen.dart         monthly commission view
+    reminders_screen.dart          AI reminder composer + history
+    settings_screen.dart           commission, AI, cloud sync, data
   widgets/
-    common.dart                   cards, status pill, formatting, layout
-    transaction_tile.dart         list row
+    common.dart                    cards, pills, formatting, layout
+    transaction_tile.dart          list row
+    sync_badge.dart                Local / Syncing / Synced / Error
 test/
-  transaction_test.dart           money, aging, bill date, JSON, repository
-  month_filter_test.dart          bill-month filter widget test
-  widget_test.dart                app smoke test
+  transaction_test.dart            money, aging, bill date, JSON, repository
+  commission_test.dart             commission engine
+  reminder_test.dart               fallback + mocked LLM
+  month_filter_test.dart           bill-month filter widget test
+  reminder_screen_test.dart        fallback reminder UI
+  widget_test.dart                 app smoke test
+docs/
+  UI_DESIGN.md                     screen map and visual system
+  FIREBASE.md                      Firestore setup and rules
+  INTEGRATION.md                   partner contract
+  DEPLOY.md                        GitHub Pages + Netlify
 ```
 
 ## Design decisions
 
-- **Repository boundary.** Screens depend on `TransactionRepository`, not on `shared_preferences`. Increment 2 adds `FirestoreTransactionRepository` and changes only the provider override.
+- **Repository boundary.** Screens depend on repositories/providers, not on storage details. The local and Firestore stores share the same JSON.
 - **Derived overdue.** `PaymentStatus` stores only Unpaid / Partial / Paid; “Overdue” is computed from `dueDate`, so it cannot become stale.
-- **Bill month uses the document date.** The month filter uses `cashBillDate`, then `invoiceDate`, then `createdAt`. This keeps old records visible even when the physical document date was not entered.
-- **Phone-first, web-safe.** `PageWidth` caps content at 560 px on tablets/browsers; the layout stays single-column.
-- **Local first.** Increment 1 works offline with no Firebase project, so the UI and business rules can be tested before cloud setup.
+- **Bill month uses the document date.** The month filter and commission period use `cashBillDate`, then `invoiceDate`, then `createdAt`.
+- **Offline first.** Every write hits the local cache first; Firestore is a background sync target. The app never blocks on the network.
+- **AI with a floor.** The reminder always produces a usable message; the LLM is an enhancement, not a single point of failure.
+- **Pure business logic.** `CommissionEngine` and `ReminderService` are testable without widgets or Firebase.
 
-## Not in Increment 1
+## Scope
 
-- Firebase Authentication and Firestore sync (Increment 2).
-- Full commission engine and commission history (Increment 3).
-- LLM reminder generation and reminder history (Increment 4).
-- Customer profiles, OCR receipt scanning and settings from the partner module.
-- PDF/Excel export, multi-currency, multi-user roles.
+Implemented in this module: transactions, payment status/aging, dashboard, commission, AI reminder generation, state exposure, Firestore-ready sync.
 
-## Next increments
+Partner module (Kerry), intentionally not implemented here: authentication UI, customer profiles, OCR/receipt image management, reminder message management/WhatsApp sharing, shared settings screen.
 
-| Increment | Scope |
-|---|---|
-| 2 | Firestore repository, offline sync, dashboard hardening |
-| 3 | Commission engine, rate history, monthly commission view |
-| 4 | LLM prompt construction, tone selection, fallback template, reminder history |
-| 5 | Integration with the partner's auth/customer/reminder modules, end-to-end testing |
+## Deploy
 
-See [docs/UI_DESIGN.md](docs/UI_DESIGN.md) for the screen map and design system.
-See [docs/DEPLOY.md](docs/DEPLOY.md) for the free, permanent GitHub Pages setup with auto-deploy on every push.
+- [GitHub Pages + Actions](docs/DEPLOY.md) — free permanent URL, auto-deploy on `git push`.
+- Netlify Drop: drag `build/smartpayla-web.zip` into <https://app.netlify.com/drop> for a permanent HTTPS link without a server.

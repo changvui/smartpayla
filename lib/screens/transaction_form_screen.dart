@@ -90,7 +90,8 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     }
   }
 
-  double get _balance => (_totalValue - _effectiveAdvance).clamp(0, _totalValue);
+  double get _balance =>
+      (_totalValue - _effectiveAdvance).clamp(0, _totalValue);
 
   void _onTotalChanged() {
     if (_syncingAmount) return;
@@ -536,13 +537,10 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       updatedAt: now,
       finishDate: _finishDate,
       claimExpiry: _claimExpiry,
-      invoiceNumber: _invoice.text.trim().isEmpty
-          ? null
-          : _invoice.text.trim(),
+      invoiceNumber: _invoice.text.trim().isEmpty ? null : _invoice.text.trim(),
       invoiceDate: _invoiceDate,
-      cashBillNumber: _cashBill.text.trim().isEmpty
-          ? null
-          : _cashBill.text.trim(),
+      cashBillNumber:
+          _cashBill.text.trim().isEmpty ? null : _cashBill.text.trim(),
       cashBillDate: _cashBillDate,
     );
 

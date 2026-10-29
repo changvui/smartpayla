@@ -25,13 +25,18 @@ flutter run -d chrome `
   --dart-define=DEMO=true
 ```
 
-`APP_USER_ID` is the owner segment of the Firestore path:
+The owner segment of the Firestore path is resolved in this order:
 
 ```text
-users/{APP_USER_ID}/transactions/{transactionId}
+1. FirebaseAuth.instance.currentUser.uid   (partner login or demo auth)
+2. APP_USER_ID                             (test-mode / local fallback)
 ```
 
-The transaction module does not create users. In the integrated build, pass the UID from the partner's Firebase Authentication module instead of `demo-agent`.
+```text
+users/{uid}/transactions/{transactionId}
+```
+
+`FirebaseConfig.userId` reads the real signed-in UID automatically. The transaction module does not create users; the partner authentication module owns the login UI. `APP_USER_ID=demo-agent` is only a fallback when nobody is signed in.
 
 ## 3. Firestore rules
 
@@ -49,7 +54,23 @@ service cloud.firestore {
 }
 ```
 
-While developing the standalone module, there is no auth layer yet. Use test-mode rules **temporarily**:
+### Testing before the partner login UI is ready
+
+You can test secure cross-device sync now with a temporary Firebase Auth user:
+
+1. Firebase Console → **Authentication → Users → Add user** (email + password).
+2. Run the app with:
+
+```powershell
+--dart-define=DEMO_AUTH_EMAIL=test@smartpayla.app `
+--dart-define=DEMO_AUTH_PASSWORD=your-test-password
+```
+
+`main.dart` signs in that user before the app starts; both devices use the same UID, so they see the same Firestore data. This is a testing bridge only. When Kerry's login screen is ready, sign in through it and `FirebaseConfig.userId` will use that UID automatically.
+
+Do not commit the test password or ship it in a public build.
+
+If you have neither auth nor a demo user, use test-mode rules **temporarily**:
 
 ```javascript
 allow read, write: if true;

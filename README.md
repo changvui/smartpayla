@@ -33,6 +33,7 @@ This repository is the implementation for the FYP report. The core increments ar
 ### Cloud sync (Increment 2)
 - Offline-first architecture: local storage is the cache; Firestore is optional.
 - `users/{userId}/transactions/{transactionId}` Firestore layout, merge by `updatedAt`, real-time snapshot listener, and a **sync badge** (Local / Syncing / Synced / Sync error).
+- The Firestore owner comes from `FirebaseAuth.currentUser.uid` when someone is signed in; `APP_USER_ID` is only the test-mode fallback.
 - Runs fully in local mode without Firebase. Add `FIREBASE_*` defines to enable sync.
 - See [docs/FIREBASE.md](docs/FIREBASE.md).
 

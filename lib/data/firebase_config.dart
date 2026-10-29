@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 class FirebaseRuntime {
@@ -25,8 +26,25 @@ class FirebaseConfig {
   static const authDomain = String.fromEnvironment('FIREBASE_AUTH_DOMAIN');
   static const storageBucket =
       String.fromEnvironment('FIREBASE_STORAGE_BUCKET');
-  static const userId =
+
+  /// Used only when there is no signed-in Firebase user (test-mode rules).
+  static const demoUserId =
       String.fromEnvironment('APP_USER_ID', defaultValue: 'demo-agent');
+
+  /// The real owner of the transaction data.
+  ///
+  /// Once the partner authentication module signs a user in, its UID wins.
+  /// Until then, the standalone prototype falls back to APP_USER_ID.
+  static String get userId {
+    if (!FirebaseRuntime.initialized) return demoUserId;
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null && uid.isNotEmpty) return uid;
+    } catch (_) {
+      // Auth is not available yet; keep the local/demo scope.
+    }
+    return demoUserId;
+  }
 
   static bool get configured =>
       apiKey.isNotEmpty && appId.isNotEmpty && projectId.isNotEmpty;

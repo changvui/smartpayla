@@ -101,8 +101,8 @@ The partner's reminder UI should:
 
 ## 5. Integration steps
 
-1. Partner authentication signs the user in and exposes a stable UID.
-2. Pass that UID to the transaction module (replace the `APP_USER_ID` demo value with the real UID). The Firestore path becomes `users/{uid}/transactions/{id}`.
+1. Partner authentication signs the user in with Firebase Auth.
+2. `FirebaseConfig.userId` reads `FirebaseAuth.instance.currentUser.uid` automatically, so the Firestore path becomes `users/{uid}/transactions/{id}`. No extra hand-off call is needed. `APP_USER_ID` is only the fallback when nobody is signed in.
 3. Make sure Firestore rules allow the signed-in owner:
 
 ```javascript

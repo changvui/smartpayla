@@ -128,17 +128,13 @@ final transactionsProvider =
 class AppSettings {
   const AppSettings({
     required this.commissionRate,
-    this.aiBaseUrl = 'https://api.deepseek.com/v1',
     this.aiApiKey = '',
-    this.aiModel = 'deepseek-chat',
     this.defaultTone = ReminderTone.formal,
   });
 
   /// 0.05 = 5%.
   final double commissionRate;
-  final String aiBaseUrl;
   final String aiApiKey;
-  final String aiModel;
   final ReminderTone defaultTone;
 
   double get commissionPercent => commissionRate * 100;
@@ -147,16 +143,12 @@ class AppSettings {
 
   AppSettings copyWith({
     double? commissionRate,
-    String? aiBaseUrl,
     String? aiApiKey,
-    String? aiModel,
     ReminderTone? defaultTone,
   }) {
     return AppSettings(
       commissionRate: commissionRate ?? this.commissionRate,
-      aiBaseUrl: aiBaseUrl ?? this.aiBaseUrl,
       aiApiKey: aiApiKey ?? this.aiApiKey,
-      aiModel: aiModel ?? this.aiModel,
       defaultTone: defaultTone ?? this.defaultTone,
     );
   }
@@ -164,9 +156,7 @@ class AppSettings {
 
 class SettingsNotifier extends Notifier<AppSettings> {
   static const _commissionKey = 'smartpayla_commission_rate';
-  static const _aiBaseKey = 'smartpayla_ai_base_url';
   static const _aiKeyKey = 'smartpayla_ai_key';
-  static const _aiModelKey = 'smartpayla_ai_model';
   static const _toneKey = 'smartpayla_default_tone';
 
   @override
@@ -174,9 +164,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
     final prefs = ref.watch(sharedPreferencesProvider);
     return AppSettings(
       commissionRate: prefs.getDouble(_commissionKey) ?? 0.05,
-      aiBaseUrl: prefs.getString(_aiBaseKey) ?? 'https://api.deepseek.com/v1',
       aiApiKey: prefs.getString(_aiKeyKey) ?? '',
-      aiModel: prefs.getString(_aiModelKey) ?? 'deepseek-chat',
       defaultTone:
           ReminderToneX.fromName(prefs.getString(_toneKey) ?? 'formal'),
     );
@@ -189,22 +177,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
     state = state.copyWith(commissionRate: safe);
   }
 
-  Future<void> setAiConfig({
-    required String baseUrl,
-    required String apiKey,
-    required String model,
-  }) async {
+  Future<void> setAiKey(String apiKey) async {
     final prefs = ref.read(sharedPreferencesProvider);
-    final safeBase = baseUrl.trim();
-    final safeModel = model.trim();
-    await prefs.setString(_aiBaseKey, safeBase);
-    await prefs.setString(_aiKeyKey, apiKey.trim());
-    await prefs.setString(_aiModelKey, safeModel);
-    state = state.copyWith(
-      aiBaseUrl: safeBase,
-      aiApiKey: apiKey.trim(),
-      aiModel: safeModel,
-    );
+    final safeKey = apiKey.trim();
+    await prefs.setString(_aiKeyKey, safeKey);
+    state = state.copyWith(aiApiKey: safeKey);
   }
 
   Future<void> setDefaultTone(ReminderTone tone) async {

@@ -24,11 +24,10 @@ This repository is the implementation for the FYP report. The core increments ar
 
 ### AI reminders (Increment 4)
 - Pick an open/overdue customer, choose **Formal / Friendly / Urgent**, generate a reminder.
-- OpenAI-compatible LLM call with an **8-second timeout** and **static fallback templates** when there is no key, no network, or an API error.
+- **DeepSeek-only** chat-completions call (`deepseek-chat`) with an **8-second timeout** and **static fallback templates** when there is no key, no network, or an API error.
 - Preview, copy to clipboard, and local reminder history.
-- AI base URL, model, key and default tone in **Settings → AI reminders**.
-- Defaults to **DeepSeek** (`https://api.deepseek.com/v1`, model `deepseek-chat`); any OpenAI-compatible endpoint can be used instead.
-- Browser LLM calls may be blocked by CORS depending on the provider; the fallback keeps the feature usable. For a production web demo, put the key behind a small proxy.
+- DeepSeek API key and default tone in **Settings → AI reminders**. The endpoint and model are fixed; there is no other AI provider to configure.
+- Browser calls to DeepSeek support CORS from the local web origin; the fallback keeps the feature usable anywhere.
 - The partner module owns WhatsApp sharing and the cross-device reminder history UI.
 
 ### Cloud sync (Increment 2)

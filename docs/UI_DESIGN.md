@@ -148,7 +148,7 @@ Validation:
 
 - Profile card (name, student ID, local/sync status).
 - Commission rate field (percent) with save.
-- AI reminders: API base URL, model, API key (obscured), default tone, save.
+- AI reminders: fixed DeepSeek provider (`deepseek-chat`), API key (obscured), default tone, save.
 - Cloud sync: status badge, connected user, Sync now, or a local-only explanation.
 - Data: Load demo data, Clear all transactions.
 - About: build, framework, currency, cloud sync, AI reminders.

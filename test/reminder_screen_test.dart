@@ -9,6 +9,11 @@ import 'package:smartpayla/state/providers.dart';
 void main() {
   testWidgets('generates a fallback reminder without an API key',
       (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     await LocalTransactionRepository(prefs).seedDemo();

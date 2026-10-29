@@ -27,9 +27,7 @@ void main() {
     final result = await ReminderService().generate(
       transaction: overdueTransaction(),
       tone: ReminderTone.formal,
-      apiBaseUrl: 'https://api.openai.com/v1',
       apiKey: '',
-      model: 'gpt-4o-mini',
     );
 
     expect(result.usedFallback, isTrue);
@@ -46,6 +44,8 @@ void main() {
           request.headers['Authorization'] ?? request.headers['authorization'],
           'Bearer test-key',
         );
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['model'], 'deepseek-chat');
         return http.Response(
           jsonEncode({
             'choices': [
@@ -62,9 +62,7 @@ void main() {
     final result = await service.generate(
       transaction: overdueTransaction(),
       tone: ReminderTone.friendly,
-      apiBaseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
-      model: 'test-model',
     );
 
     expect(result.usedFallback, isFalse);
@@ -79,9 +77,7 @@ void main() {
     final result = await service.generate(
       transaction: overdueTransaction(),
       tone: ReminderTone.urgent,
-      apiBaseUrl: 'https://api.example.com/v1',
       apiKey: 'test-key',
-      model: 'test-model',
     );
 
     expect(result.usedFallback, isTrue);

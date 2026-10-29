@@ -10,14 +10,15 @@ import '../models/transaction.dart';
 class ReminderService {
   ReminderService({http.Client? client}) : _client = client ?? http.Client();
 
+  static const endpoint = 'https://api.deepseek.com/v1/chat/completions';
+  static const model = 'deepseek-chat';
+
   final http.Client _client;
 
   Future<ReminderResult> generate({
     required Transaction transaction,
     required ReminderTone tone,
-    required String apiBaseUrl,
     required String apiKey,
-    required String model,
   }) async {
     final fallback = _fallback(transaction, tone);
     if (apiKey.trim().isEmpty) {
@@ -25,30 +26,20 @@ class ReminderService {
         text: fallback,
         tone: tone,
         usedFallback: true,
-        error: 'No API key configured',
-      );
-    }
-
-    final base = apiBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    if (base.isEmpty) {
-      return ReminderResult(
-        text: fallback,
-        tone: tone,
-        usedFallback: true,
-        error: 'No API base URL configured',
+        error: 'No DeepSeek API key configured',
       );
     }
 
     try {
       final response = await _client
           .post(
-            Uri.parse('$base/chat/completions'),
+            Uri.parse(endpoint),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer ${apiKey.trim()}',
             },
             body: jsonEncode({
-              'model': model.trim().isEmpty ? 'deepseek-chat' : model.trim(),
+              'model': model,
               'temperature': 0.7,
               'max_tokens': 220,
               'messages': [

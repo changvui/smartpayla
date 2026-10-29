@@ -18,9 +18,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController _rateController;
-  late final TextEditingController _baseUrlController;
   late final TextEditingController _apiKeyController;
-  late final TextEditingController _modelController;
   late ReminderTone _tone;
 
   @override
@@ -29,9 +27,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.read(settingsProvider);
     _rateController =
         TextEditingController(text: _formatRate(settings.commissionPercent));
-    _baseUrlController = TextEditingController(text: settings.aiBaseUrl);
     _apiKeyController = TextEditingController(text: settings.aiApiKey);
-    _modelController = TextEditingController(text: settings.aiModel);
     _tone = settings.defaultTone;
   }
 
@@ -43,9 +39,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     _rateController.dispose();
-    _baseUrlController.dispose();
     _apiKeyController.dispose();
-    _modelController.dispose();
     super.dispose();
   }
 
@@ -180,7 +174,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'LLM connection',
+                    'DeepSeek connection',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -189,7 +183,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'DeepSeek or any OpenAI-compatible endpoint. Leave the key empty to use the built-in fallback templates. The key is stored on this device only.',
+                    'Reminders are generated with DeepSeek (deepseek-chat). Leave the key empty to use the built-in fallback templates. The key is stored on this device only.',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: AppColors.muted,
@@ -197,20 +191,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _baseUrlController,
-                    keyboardType: TextInputType.url,
-                    decoration: _aiDecoration(
-                      'API base URL',
-                      hint: 'https://api.deepseek.com/v1',
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _modelController,
-                    decoration: _aiDecoration(
-                      'Model',
-                      hint: 'deepseek-chat',
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.auto_awesome_rounded,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'DeepSeek',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        Spacer(),
+                        Text(
+                          'deepseek-chat',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -220,7 +235,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: _aiDecoration(
-                      'API key (optional)',
+                      'DeepSeek API key',
                       hint: 'sk-...',
                     ),
                   ),
@@ -381,26 +396,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _saveAi() async {
-    final base = _baseUrlController.text.trim();
-    if (base.isNotEmpty &&
-        !base.startsWith('http://') &&
-        !base.startsWith('https://')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Base URL must start with http:// or https://.'),
-        ),
-      );
-      return;
-    }
-    await ref.read(settingsProvider.notifier).setAiConfig(
-          baseUrl: base,
-          apiKey: _apiKeyController.text,
-          model: _modelController.text,
-        );
+    await ref
+        .read(settingsProvider.notifier)
+        .setAiKey(_apiKeyController.text);
     await ref.read(settingsProvider.notifier).setDefaultTone(_tone);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('AI reminder settings saved.')),
+      const SnackBar(content: Text('DeepSeek settings saved.')),
     );
   }
 

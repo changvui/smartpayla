@@ -149,7 +149,7 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'No API key configured. Reminders will use the built-in templates. Add a key in Settings → AI reminders to use your LLM.',
+                        'No DeepSeek API key configured. Reminders will use the built-in templates. Add a key in Settings → AI reminders to use DeepSeek.',
                         style: TextStyle(
                           fontSize: 11,
                           color: AppColors.amber,
@@ -334,9 +334,7 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
     final result = await ref.read(reminderServiceProvider).generate(
           transaction: transaction,
           tone: _tone,
-          apiBaseUrl: settings.aiBaseUrl,
           apiKey: settings.aiApiKey,
-          model: settings.aiModel,
         );
     if (!mounted) return;
     setState(() {

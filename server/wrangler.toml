@@ -1,0 +1,11 @@
+name = "smartpayla-ai"
+main = "worker.js"
+compatibility_date = "2026-10-29"
+
+# Optional per-IP rate limit:
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT"
+# id = "<your-kv-namespace-id>"
+
+# The DeepSeek key is a secret, not a plain variable:
+#   npx wrangler secret put DEEPSEEK_API_KEY

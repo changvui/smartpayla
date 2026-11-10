@@ -65,9 +65,24 @@ class AuthController {
     try {
       final provider = GoogleAuthProvider();
       provider.setCustomParameters({'prompt': 'select_account'});
-      final credential = await FirebaseAuth.instance.signInWithPopup(provider);
-      if (credential.user == null) return 'Google sign-in was cancelled.';
-      return null;
+
+      try {
+        final credential =
+            await FirebaseAuth.instance.signInWithPopup(provider);
+        if (credential.user == null) return 'Google sign-in was cancelled.';
+        return null;
+      } on FirebaseAuthException catch (popupError) {
+        // Mobile browsers refuse popups. Fall back to a full-page redirect;
+        // when the browser comes back, authStateChanges() emits the user and
+        // AuthGate moves on by itself.
+        final blocked = popupError.code == 'popup-blocked' ||
+            popupError.code == 'operation-not-supported-in-this-environment';
+        if (!blocked) rethrow;
+
+        debugPrint('Popup blocked (${popupError.code}); using redirect flow.');
+        await FirebaseAuth.instance.signInWithRedirect(provider);
+        return null;
+      }
     } on FirebaseAuthException catch (e) {
       debugPrint('GOOGLE SIGN-IN ERROR CODE: ${e.code}');
       debugPrint('GOOGLE SIGN-IN ERROR MESSAGE: ${e.message}');

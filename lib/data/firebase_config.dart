@@ -26,6 +26,12 @@ class FirebaseConfig {
   static const storageBucket =
       String.fromEnvironment('FIREBASE_STORAGE_BUCKET');
 
+  /// OAuth *Web* client id (`…apps.googleusercontent.com`), needed by
+  /// google_sign_in on Android/iOS so Google can verify the ID token.
+  /// Pass it with --dart-define=GOOGLE_SERVER_CLIENT_ID=...
+  static const googleServerClientId =
+      String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+
   /// Used only when there is no signed-in Firebase user (test-mode rules).
   static const demoUserId =
       String.fromEnvironment('APP_USER_ID', defaultValue: 'demo-agent');

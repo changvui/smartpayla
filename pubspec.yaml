@@ -21,6 +21,9 @@ dependencies:
   url_launcher: ^6.3.3
   image_picker: ^1.2.4
   google_mlkit_text_recognition: ^1.0.2
+  # Native Google sign-in (Android/iOS). The web build uses signInWithPopup /
+  # signInWithRedirect instead, but the package import is shared.
+  google_sign_in: ^6.3.0
   # Copies bill photos into the app's documents folder so they survive cache
   # clearing (native only; the web build inlines them as base64 instead).
   path_provider: ^2.1.0

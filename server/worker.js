@@ -563,7 +563,10 @@ async function handleAgree(env, origin) {
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
-    const allowed = ALLOWED_ORIGINS.has(origin);
+    // The allow-list only protects browsers, which always send Origin. Native
+    // Android/iOS builds send no Origin at all, so an empty value must be
+    // accepted or every call from the app would be rejected with 403.
+    const allowed = origin === "" || ALLOWED_ORIGINS.has(origin);
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
 
     // Browser-friendly, no Origin header, GET is fine.

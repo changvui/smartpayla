@@ -46,12 +46,16 @@ class AuthGate extends ConsumerWidget {
     return authState.when(
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (error, stackTrace) => Scaffold(body: Center(child: Text('Error: $error'))),
-      // If Firebase never initialised (offline, blocked, plugin missing) fall
-      // back to the local-only ledger instead of trapping the user on a login
-      // screen that can never succeed.
+      // A user only reaches the ledger once the e-mail address is confirmed.
+      // While unverified they stay on the login screen, which offers a
+      // "resend verification link" action.
       data: (user) {
-        if (user != null) return const HomeShell();
-        return FirebaseRuntime.initialized ? const LoginScreen() : const HomeShell();
+        if (user == null) {
+          return FirebaseRuntime.initialized
+              ? const LoginScreen()
+              : const HomeShell();
+        }
+        return user.emailVerified ? const HomeShell() : const LoginScreen();
       },
     );
   }

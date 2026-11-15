@@ -26,20 +26,72 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      if (error != null && mounted) {
+
+      if (error == emailNotVerified && mounted) {
+        await _showVerifyDialog();
+      } else if (error != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), backgroundColor: Colors.red),
+          SnackBar(content: Text(error), backgroundColor: AppColors.red),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.red),
         );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Shown when the password is correct but the e-mail link was never clicked.
+  Future<void> _showVerifyDialog() async {
+    final messenger = ScaffoldMessenger.of(context);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.mark_email_unread_outlined, color: AppColors.amber),
+            SizedBox(width: 8),
+            Expanded(child: Text('Verify your e-mail')),
+          ],
+        ),
+        content: Text(
+          'Your password is correct, but ${_emailController.text.trim()} has not '
+          'been verified yet. Open the link we sent you, then log in again.',
+          style: const TextStyle(height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final resendError =
+                  await ref.read(authControllerProvider).resendVerificationEmail();
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    resendError ?? 'Verification e-mail sent. Check your inbox.',
+                  ),
+                  backgroundColor:
+                      resendError == null ? AppColors.green : AppColors.red,
+                ),
+              );
+            },
+            child: const Text('Resend link'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () async {
+              await ref.read(authControllerProvider).logout();
+              if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

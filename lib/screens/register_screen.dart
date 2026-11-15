@@ -48,9 +48,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         Navigator.pop(context, email);
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Account created for $email — please log in.'),
+            content: Text(
+              'Verification link sent to $email. Open it, then log in.',
+            ),
             backgroundColor: AppColors.green,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 6),
           ),
         );
       }

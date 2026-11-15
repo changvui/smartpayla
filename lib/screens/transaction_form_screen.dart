@@ -198,54 +198,89 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     setState(() {});
   }
 
+  /// One item row, laid out as two lines so it fits a 360 dp phone:
+  ///   [ description ................................  ✕ ]
+  ///   [ Qty ]   [ Price (RM) ]        RM 30.00
   Widget _buildLineRow(BuildContext context, int index) {
     final line = _lines[index];
     final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant;
+    final textColor = Theme.of(context).colorScheme.onSurface;
 
-    return Row(
+    final qty = double.tryParse(line.qty.text.trim()) ?? 0;
+    final price =
+        double.tryParse(line.price.text.replaceAll(',', '.').trim()) ?? 0;
+    final amount = qty * price;
+
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: TextFormField(
-            controller: line.desc,
-            onChanged: (_) => _onLineChanged(),
-            textCapitalization: TextCapitalization.sentences,
-            decoration: _decoration(
-              context,
-              'Item ${index + 1}',
-              hint: 'Description',
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: line.desc,
+                onChanged: (_) => _onLineChanged(),
+                textCapitalization: TextCapitalization.sentences,
+                decoration: _decoration(
+                  context,
+                  'Item ${index + 1}',
+                  hint: 'What was sold?',
+                ),
+              ),
             ),
-          ),
+            IconButton(
+              tooltip:
+                  _lines.length == 1 ? 'Keep at least one item' : 'Remove item',
+              onPressed: _lines.length == 1 ? null : () => _removeLine(index),
+              icon: Icon(Icons.close_rounded, size: 18, color: mutedColor),
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 58,
-          child: TextFormField(
-            controller: line.qty,
-            onChanged: (_) => _onLineChanged(),
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: _decoration(context, 'Qty'),
-          ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 92,
-          child: TextFormField(
-            controller: line.price,
-            onChanged: (_) => _onLineChanged(),
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d{0,2}')),
-            ],
-            decoration: _decoration(context, 'Price'),
-          ),
-        ),
-        IconButton(
-          tooltip: _lines.length == 1 ? 'Keep at least one item' : 'Remove item',
-          onPressed: _lines.length == 1 ? null : () => _removeLine(index),
-          icon: Icon(Icons.close_rounded, size: 18, color: mutedColor),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 72,
+              child: TextFormField(
+                controller: line.qty,
+                onChanged: (_) => _onLineChanged(),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: _decoration(context, 'Qty'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextFormField(
+                controller: line.price,
+                onChanged: (_) => _onLineChanged(),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d{0,2}')),
+                ],
+                decoration: _decoration(context, 'Price (RM)'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 86,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: Text(
+                  money(amount),
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: amount > 0 ? textColor : mutedColor,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -445,7 +480,8 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                         children: [
                           for (var i = 0; i < _lines.length; i++) ...[
                             _buildLineRow(context, i),
-                            if (i != _lines.length - 1) const SizedBox(height: 8),
+                            if (i != _lines.length - 1)
+                              const Divider(height: 22),
                           ],
                           Row(
                             children: [

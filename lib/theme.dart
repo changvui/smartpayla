@@ -43,6 +43,16 @@ ThemeData buildAppTheme() {
       surfaceTintColor: Colors.transparent,
       indicatorColor: AppColors.primary.withValues(alpha: 0.12),
       height: 68,
+      // 10.5 pt keeps five destinations on one line on a 360 dp phone.
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontSize: 10.5,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w700
+              : FontWeight.w500,
+          color: AppColors.ink,
+        ),
+      ),
     ),
     snackBarTheme: const SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
@@ -92,6 +102,15 @@ ThemeData buildDarkAppTheme() {
       surfaceTintColor: Colors.transparent,
       indicatorColor: AppColors.primary.withValues(alpha: 0.3),
       height: 68,
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontSize: 10.5,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w700
+              : FontWeight.w500,
+          color: Colors.white,
+        ),
+      ),
     ),
     snackBarTheme: const SnackBarThemeData(
       behavior: SnackBarBehavior.floating,

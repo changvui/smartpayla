@@ -729,23 +729,46 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
                     LayoutBuilder(
                       builder: (context, constraints) {
-                        final side = constraints.maxWidth < 360
-                            ? constraints.maxWidth - 8
-                            : 360.0;
-                        return Image.memory(
-                          _decode(qr),
-                          width: side,
-                          height: side,
-                          fit: BoxFit.contain,
+                        // Fill the card: a phone screen is the normal case, so
+                        // the QR should use every pixel available.
+                        final side = constraints.maxWidth > 420
+                            ? 420.0
+                            : constraints.maxWidth;
+                        return InkWell(
+                          onTap: () => _showFullScreenQr(qr),
+                          child: Stack(
+                            alignment: Alignment.bottomRight,
+                            children: [
+                              Image.memory(
+                                _decode(qr),
+                                width: side,
+                                height: side,
+                                fit: BoxFit.contain,
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.white70,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.zoom_out_map_rounded,
+                                  size: 16,
+                                  color: _muted,
+                                ),
+                              ),
+                            ],
+                          ),
                         );
                       },
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Scan with any banking app or TNG eWallet',
+                      'Scan with any banking app or TNG eWallet · tap to enlarge',
+                      textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12, color: _muted),
                     ),
                   ],
@@ -1065,6 +1088,49 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// Shown when the customer returns from their banking app. It does not claim
   /// the money arrived — it cannot know that — it simply removes the friction of
   /// finding the declaration button again.
+  /// Full-bleed QR so a customer can hold the phone up to a scanner, or pinch
+  /// to zoom when the screenshot has wide margins.
+  void _showFullScreenQr(String qr) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.white,
+        insetPadding: const EdgeInsets.all(12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 6, 0),
+              child: Row(
+                children: [
+                  _duitnowBadge(),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Scan to pay',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                maxScale: 5,
+                child: Image.memory(_decode(qr), fit: BoxFit.contain),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _returnPrompt(double selectedTotal) {
     return Container(
       padding: const EdgeInsets.all(14),

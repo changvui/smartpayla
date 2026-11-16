@@ -449,7 +449,8 @@ class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
           const SizedBox(height: 4),
           Text(
             'Shown on the customer payment page. Screenshot the “Receive” '
-            'code from TNG eWallet or your banking app.',
+            'code from TNG eWallet or your banking app, and crop it close to '
+            'the QR — wide margins make the code small on a phone.',
             style: TextStyle(fontSize: 11.5, color: muted, height: 1.4),
           ),
           const SizedBox(height: 12),

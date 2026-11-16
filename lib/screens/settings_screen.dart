@@ -1,6 +1,10 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'dart:convert';
+
+import 'package:image_picker/image_picker.dart';
 
 import '../models/reminder.dart';
 import '../services/cloud_sync_service.dart';
@@ -258,6 +262,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 18),
 
+            // Payment (DuitNow QR shown to customers)
+            const SectionHeader(title: 'Payment'),
+            const _PaymentSettingsCard(),
+            const SizedBox(height: 18),
+
             // Commission Rate
             const SectionHeader(title: 'Commission'),
             AppCard(
@@ -384,5 +393,209 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+  }
+}
+/// DuitNow QR and payee details. Whatever is set here is embedded in every
+/// customer statement, so the agent uploads the picture once.
+class _PaymentSettingsCard extends ConsumerStatefulWidget {
+  const _PaymentSettingsCard();
+
+  @override
+  ConsumerState<_PaymentSettingsCard> createState() =>
+      _PaymentSettingsCardState();
+}
+
+class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
+  late final TextEditingController _shop;
+  late final TextEditingController _payee;
+  late final TextEditingController _bank;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = ref.read(settingsProvider);
+    _shop = TextEditingController(text: settings.shopName);
+    _payee = TextEditingController(text: settings.payeeName);
+    _bank = TextEditingController(text: settings.bankNote);
+  }
+
+  @override
+  void dispose() {
+    _shop.dispose();
+    _payee.dispose();
+    _bank.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final settings = ref.watch(settingsProvider);
+    final qr = settings.paymentQr;
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'DuitNow QR',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Shown on the customer payment page. Screenshot the “Receive” '
+            'code from TNG eWallet or your banking app.',
+            style: TextStyle(fontSize: 11.5, color: muted, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: qr == null || qr.isEmpty
+                    ? Icon(Icons.qr_code_2_rounded, color: muted)
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.memory(
+                          base64Decode(
+                            qr.substring(qr.indexOf(',') + 1),
+                          ),
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _pickQr,
+                      icon: const Icon(Icons.upload_rounded, size: 18),
+                      label: Text(
+                        qr == null || qr.isEmpty ? 'Upload QR' : 'Replace QR',
+                      ),
+                    ),
+                    if (qr != null && qr.isNotEmpty)
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => ref
+                                  .read(settingsProvider.notifier)
+                                  .clearPaymentQr(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.red,
+                        ),
+                        child: const Text('Remove'),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _shop,
+            decoration: const InputDecoration(
+              labelText: 'Shop name',
+              hintText: 'Kedai Ah Seng',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _payee,
+            decoration: const InputDecoration(
+              labelText: 'Payee name (as shown on the transfer)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _bank,
+            decoration: const InputDecoration(
+              labelText: 'Bank details / note (optional)',
+              hintText: 'Maybank 1234-5678-9012',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _busy ? null : _saveDetails,
+              child: const Text('Save payment details'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _saveDetails() async {
+    setState(() => _busy = true);
+    await ref
+        .read(settingsProvider.notifier)
+        .setPaymentDetails(
+          shopName: _shop.text.trim().isEmpty
+              ? 'SmartPayLA'
+              : _shop.text.trim(),
+          payeeName: _payee.text.trim(),
+          bankNote: _bank.text.trim(),
+        );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Payment details saved'),
+        backgroundColor: AppColors.green,
+      ),
+    );
+  }
+
+  Future<void> _pickQr() async {
+    setState(() => _busy = true);
+    try {
+      final file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 700,
+        imageQuality: 88,
+      );
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      final dataUri = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+      await ref
+          .read(settingsProvider.notifier)
+          .setPaymentDetails(paymentQr: dataUri);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('QR saved — it will appear on every statement'),
+          backgroundColor: AppColors.green,
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not read the image: $error'),
+            backgroundColor: AppColors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 }

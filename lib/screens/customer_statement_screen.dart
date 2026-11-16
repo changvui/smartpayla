@@ -1,0 +1,1353 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../services/statement_service.dart';
+import '../widgets/payment_actions.dart';
+
+/// Public, read-only page a customer opens from a WhatsApp link.
+///
+/// It is deliberately independent of the application theme: no bottom
+/// navigation, no dark mode, a large balance and a single call to action. The
+/// only data it can read is the snapshot behind the token in the URL.
+class CustomerStatementScreen extends StatefulWidget {
+  const CustomerStatementScreen({
+    super.key,
+    required this.token,
+    this.service,
+  });
+
+  final String token;
+  final StatementService? service;
+
+  @override
+  State<CustomerStatementScreen> createState() =>
+      _CustomerStatementScreenState();
+}
+
+// ------------------------------------------------------------------ palette
+const _bg = Color(0xFFF5F8FE);
+const _ink = Color(0xFF0F172A);
+const _muted = Color(0xFF64748B);
+const _blue = Color(0xFF1D4ED8);
+const _blueSoft = Color(0xFFE8EEFB);
+const _border = Color(0xFFDCE5F5);
+const _green = Color(0xFF15803D);
+const _red = Color(0xFFB91C1C);
+const _amber = Color(0xFFB45309);
+
+Color _statusColor(String status) {
+  switch (status) {
+    case 'Paid':
+      return _green;
+    case 'Partial':
+      return _blue;
+    case 'Overdue':
+      return _red;
+    case 'Unpaid':
+      return _amber;
+    default:
+      return _muted;
+  }
+}
+
+class _CustomerStatementScreenState extends State<CustomerStatementScreen>
+    with WidgetsBindingObserver {
+  late Future<Map<String, dynamic>?> _future;
+  bool _declared = false;
+
+  /// Bills the customer wants to settle now. Defaults to all of them.
+  final Set<String> _selected = {};
+  bool _seedSelection = true;
+
+  /// False = pay the full selected amount, true = the customer typed an
+  /// amount of their own.
+  bool _customAmount = false;
+  String _customAmountText = '';
+
+  /// The QR is tucked behind a DuitNow card until the customer asks for it.
+  bool _showQr = false;
+
+  StatementService get _service => widget.service ?? StatementService();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _future = _service.fetch(widget.token);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// The customer has to leave the page to open their banking app. When they
+  /// come back, offer the declaration straight away instead of waiting for them
+  /// to scroll down. There is no way to observe the transfer itself: a personal
+  /// DuitNow code has no callback, so this prompt is the closest honest
+  /// approximation of "auto detected".
+  bool _leftToPay = false;
+  bool _prompted = false;
+  bool _showReturnPrompt = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _leftToPay = true;
+      return;
+    }
+    if (state == AppLifecycleState.resumed &&
+        _leftToPay &&
+        !_prompted &&
+        !_declared) {
+      _prompted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _showReturnPrompt = true);
+      });
+    }
+  }
+
+
+  String _money(num value) =>
+      'RM ${NumberFormat('#,##0.00').format(value)}';
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: _blue,
+          brightness: Brightness.light,
+          surface: _bg,
+        ).copyWith(onSurface: _ink, onSurfaceVariant: _muted),
+        scaffoldBackgroundColor: _bg,
+      ),
+      child: Scaffold(
+        body: SafeArea(
+          child: FutureBuilder<Map<String, dynamic>?>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final data = snapshot.data;
+              if (data == null) return _invalidState();
+              return _statement(data);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _invalidState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.link_off_rounded, size: 48, color: _muted),
+            const SizedBox(height: 16),
+            const Text(
+              'This link is no longer valid',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: _ink,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'It may have expired or been replaced by a newer statement. '
+              'Ask the agent to send a fresh link.',
+              style: TextStyle(fontSize: 14, color: _muted, height: 1.5),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statement(Map<String, dynamic> data) {
+    final shop = (data['shopName'] ?? 'SmartPayLA').toString();
+    final customer = (data['customerName'] ?? '').toString();
+    final totalBalance = (data['totalBalance'] as num?)?.toDouble() ?? 0;
+    final bills = (data['bills'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    // Oldest bill first, so the customer sees what should be settled first.
+    bills.sort((a, b) {
+      final da = DateTime.tryParse(a['dueDate']?.toString() ?? '') ??
+          DateTime(2100);
+      final db = DateTime.tryParse(b['dueDate']?.toString() ?? '') ??
+          DateTime(2100);
+      return da.compareTo(db);
+    });
+    if (_seedSelection) {
+      _seedSelection = false;
+      _selected.clear();
+      if (bills.isNotEmpty) {
+        _selected.add((bills.first['id'] ?? '').toString());
+      }
+    }
+    var selectedTotal = 0.0;
+    for (final bill in bills) {
+      if (_selected.contains((bill['id'] ?? '').toString())) {
+        selectedTotal += (bill['balance'] as num?)?.toDouble() ?? 0;
+      }
+    }
+
+    final reconCode = (data['reconCode'] ?? '').toString();
+    final qr = data['paymentQr']?.toString();
+    final bankNote = (data['bankNote'] ?? '').toString();
+    final payee = (data['payeeName'] ?? '').toString();
+    final agentPhone = (data['agentPhone'] ?? '').toString();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                shop,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: _blue,
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _reload,
+              icon: const Icon(Icons.refresh_rounded, size: 20, color: _blue),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Statement for $customer',
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            color: _ink,
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(height: 20),
+        _balanceCard(totalBalance, bills.length),
+        const SizedBox(height: 24),
+        if (bills.isEmpty)
+          _paidUp()
+        else ...[
+          const Text(
+            'Outstanding bills',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: _ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Tap a bill to pay it. Each payment settles one bill.',
+            style: TextStyle(fontSize: 11.5, color: _muted),
+          ),
+          const SizedBox(height: 10),
+          for (var i = 0; i < bills.length; i++) ...[
+            _billCard(
+              bills[i],
+              selected: _selected.contains(
+                (bills[i]['id'] ?? '').toString(),
+              ),
+              onToggle: () => _toggleBill(i, bills),
+            ),
+            const SizedBox(height: 10),
+          ],
+          const SizedBox(height: 12),
+          _paymentSection(
+            totalBalance: selectedTotal,
+            qr: qr,
+            bankNote: bankNote,
+            payee: payee,
+            reconCode: reconCode,
+            bills: bills,
+          ),
+          if (_showReturnPrompt && !_declared) ...[
+            const SizedBox(height: 12),
+            _returnPrompt(selectedTotal),
+          ],
+          const SizedBox(height: 16),
+          _actions(_payAmount(selectedTotal), agentPhone),
+        ],
+        const SizedBox(height: 28),
+        Text(
+          'Updated ${DateFormat('d MMM yyyy, h:mm a').format(DateTime.now())}',
+          style: const TextStyle(fontSize: 11.5, color: _muted),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _balanceCard(double total, int count) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: _blue,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: _blue.withValues(alpha: 0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            count == 1 ? 'Amount outstanding' : 'Amount outstanding ($count bills)',
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFFDCE6FF),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _money(total),
+            style: const TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _paidUp() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF3),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.verified_rounded, color: _green),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Nothing outstanding — thank you!',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: _green,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Selection is a contiguous run from the oldest bill: picking a newer bill
+  /// also picks every older one, and un-picking a bill clears the newer ones.
+  /// This is the credit-control rule — the oldest debt is settled first.
+  /// What the customer is actually going to transfer.
+  double _payAmount(double selectedTotal) {
+    if (!_customAmount) return selectedTotal;
+    final parsed = double.tryParse(_customAmountText.replaceAll(',', '.'));
+    if (parsed == null || parsed <= 0) return selectedTotal;
+    return parsed > selectedTotal ? selectedTotal : parsed;
+  }
+
+  /// One payment settles exactly one bill, so the transfer reference is always
+  /// that bill's number and there is nothing to allocate or guess.
+  void _toggleBill(int index, List<Map<String, dynamic>> bills) {
+    setState(() {
+      final id = (bills[index]['id'] ?? '').toString();
+      _selected
+        ..clear()
+        ..add(id);
+    });
+  }
+
+  Widget _billCard(
+    Map<String, dynamic> bill, {
+    required bool selected,
+    required VoidCallback onToggle,
+  }) {
+    final status = (bill['status'] ?? 'Unpaid').toString();
+    final color = _statusColor(status);
+    final daysOverdue = (bill['daysOverdue'] as num?)?.toInt() ?? 0;
+    final dueDate = DateTime.tryParse(bill['dueDate']?.toString() ?? '');
+    final billNo = (bill['billNo'] ?? '').toString();
+    final evidence = bill['evidence']?.toString();
+    final evidenceNote = (bill['evidenceNote'] ?? '').toString();
+    final total = (bill['total'] as num?)?.toDouble() ?? 0;
+    final paid = (bill['paid'] as num?)?.toDouble() ?? 0;
+    final balance = (bill['balance'] as num?)?.toDouble() ?? 0;
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onToggle,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: selected ? _blueSoft.withValues(alpha: 0.45) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? _blue : _border,
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    size: 20,
+                    color: selected ? _blue : _muted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      (bill['description'] ?? '').toString(),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: _ink,
+                      ),
+                    ),
+                  ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (billNo.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Bill $billNo',
+              style: const TextStyle(fontSize: 12, color: _muted),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _amountColumn('Total', total),
+              const SizedBox(width: 18),
+              _amountColumn('Paid', paid),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'Balance',
+                    style: TextStyle(fontSize: 11.5, color: _muted),
+                  ),
+                  Text(
+                    _money(balance),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: _ink,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(
+                daysOverdue > 0
+                    ? Icons.error_outline_rounded
+                    : Icons.schedule_rounded,
+                size: 15,
+                color: daysOverdue > 0 ? _red : _muted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  daysOverdue > 0
+                      ? '${daysOverdue.toString()} days overdue'
+                      : 'Due ${dueDate == null ? '—' : DateFormat('d MMM yyyy').format(dueDate)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: daysOverdue > 0 ? _red : _muted,
+                    fontWeight:
+                        daysOverdue > 0 ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ),
+              if (evidence != null && evidence.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => _showEvidence(evidence, bill),
+                  icon: const Icon(Icons.receipt_long_rounded, size: 16),
+                  label: const Text('View bill'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _blue,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              else if (evidenceNote.isNotEmpty)
+                Text(
+                  'No photo',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: _muted,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+            ],
+          ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _amountColumn(String label, double value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11.5, color: _muted)),
+        Text(
+          _money(value),
+          style: const TextStyle(fontSize: 14, color: _ink),
+        ),
+      ],
+    );
+  }
+
+  void _showEvidence(String dataUri, Map<String, dynamic> bill) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.white,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      (bill['description'] ?? 'Bill').toString(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: _ink,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                maxScale: 4,
+                child: Image.memory(
+                  _decode(dataUri),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _paymentSection({
+    required double totalBalance,
+    required String? qr,
+    required String bankNote,
+    required String payee,
+    required String reconCode,
+    required List<Map<String, dynamic>> bills,
+  }) {
+    final hasQr = qr != null && qr.isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Pay now',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: _ink,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            () {
+              final payBill = bills
+                  .where(
+                    (b) => _selected.contains((b['id'] ?? '').toString()),
+                  )
+                  .firstOrNull;
+              final billNo = (payBill?['billNo'] ?? '').toString();
+              return billNo.isEmpty
+                  ? 'Outstanding ${_money(totalBalance)}'
+                  : 'Paying bill $billNo · ${_money(totalBalance)}';
+            }(),
+            style: const TextStyle(fontSize: 12.5, color: _muted),
+          ),
+          const SizedBox(height: 14),
+          if (hasQr) ...[
+            if (!_showQr)
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => setState(() => _showQr = true),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _border),
+                  ),
+                  child: Row(
+                    children: [
+                      _duitnowBadge(),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Pay with DuitNow',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: _ink,
+                              ),
+                            ),
+                            const Text(
+                              'Scan the QR with any banking app or TNG',
+                              style: TextStyle(fontSize: 12, color: _muted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.qr_code_2_rounded, size: 26, color: _blue),
+                      const Icon(Icons.chevron_right_rounded, color: _muted),
+                    ],
+                  ),
+                ),
+              )
+            else ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _blue, width: 1.6),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        _duitnowBadge(),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Scan to pay',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: _ink,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Hide QR',
+                          onPressed: () => setState(() => _showQr = false),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final side = constraints.maxWidth < 360
+                            ? constraints.maxWidth - 8
+                            : 360.0;
+                        return Image.memory(
+                          _decode(qr),
+                          width: side,
+                          height: side,
+                          fit: BoxFit.contain,
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Scan with any banking app or TNG eWallet',
+                      style: TextStyle(fontSize: 12, color: _muted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Center(
+              child: Column(
+                children: [
+                  Text(
+                    _money(_payAmount(totalBalance)),
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: _ink,
+                    ),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('Pay in full'),
+                        selected: !_customAmount,
+                        onSelected: (_) =>
+                            setState(() => _customAmount = false),
+                      ),
+                      const SizedBox(width: 8),
+                      ChoiceChip(
+                        label: const Text('Other amount'),
+                        selected: _customAmount,
+                        onSelected: (_) =>
+                            setState(() => _customAmount = true),
+                      ),
+                    ],
+                  ),
+                  if (_customAmount)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: SizedBox(
+                        width: 180,
+                        child: TextField(
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          textAlign: TextAlign.center,
+                          onChanged: (value) =>
+                              setState(() => _customAmountText = value),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            prefixText: 'RM ',
+                            hintText: '50.00',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  TextButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(
+                        ClipboardData(
+                          text: _payAmount(totalBalance).toStringAsFixed(2),
+                        ),
+                      );
+                      _toast('Amount copied — paste it after scanning');
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 16),
+                    label: const Text('Copy amount'),
+                    style: TextButton.styleFrom(foregroundColor: _blue),
+                  ),
+                ],
+              ),
+            ),
+            if (reconCode.isNotEmpty) _reconCodeRow(reconCode, bills),
+          ] else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'No DuitNow QR has been set up yet. Use one of the options '
+                'below, or contact the agent.',
+                style: TextStyle(fontSize: 12.5, color: _ink, height: 1.45),
+              ),
+            ),
+          const SizedBox(height: 10),
+          _otherWays(bankNote, payee),
+        ],
+      ),
+    );
+  }
+
+  /// The reference the customer types into their bank transfer. The bill
+  /// number is used directly, because that is the number printed on the paper
+  /// and the one the agent can look up. The SPL code stays as a secondary
+  /// option for a payment that covers several bills.
+  /// A plain text mark rather than the DuitNow logo: the logo is a registered
+  /// trademark and is not redistributed with this prototype.
+  Widget _duitnowBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE6007E),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: const Text(
+        'DuitNow',
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _reconCodeRow(
+    String reconCode,
+    List<Map<String, dynamic>> bills,
+  ) {
+    final selectedBills = bills
+        .where((b) => _selected.contains((b['id'] ?? '').toString()))
+        .toList();
+    final selectedNumbers = selectedBills
+        .map((b) => (b['billNo'] ?? '').toString())
+        .where((n) => n.isNotEmpty)
+        .toList();
+    // With one bill per payment the number is always available; the SPL code is
+    // only a fallback for a record created before numbers were mandatory.
+    final primary = selectedNumbers.isEmpty ? reconCode : selectedNumbers.first;
+    final useCode = selectedNumbers.isEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: _blueSoft,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Transfer reference',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                  color: _muted,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: _border),
+                ),
+                child: Text(
+                  useCode ? 'customer code' : 'bill number',
+                  style: const TextStyle(fontSize: 9.5, color: _muted),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          InkWell(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: primary));
+              _toast('Reference copied');
+            },
+            child: Row(
+              children: [
+                Text(
+                  primary,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _blue,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Icon(Icons.copy_rounded, size: 16, color: _blue),
+              ],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            useCode
+                ? 'Use this code in the transfer reference.'
+                : 'Use this bill number in the transfer reference. A part '
+                      'payment uses the same number.',
+            style: const TextStyle(fontSize: 11.5, color: _ink, height: 1.4),
+          ),
+          if (useCode && reconCode.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Code: $reconCode',
+                style: const TextStyle(fontSize: 11, color: _muted),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Informational payment channels. Nothing here calls a payment gateway: the
+  /// customer pays through their own app and the agent confirms the money
+  /// manually, which is what a small merchant actually does.
+  Widget _otherWays(String bankNote, String payee) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 6),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        leading: const Icon(
+          Icons.account_balance_wallet_outlined,
+          size: 20,
+          color: _blue,
+        ),
+        title: const Text(
+          'Other ways to pay',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: _ink,
+          ),
+        ),
+        children: [
+          _payOption(
+            Icons.payments_outlined,
+            'Cash',
+            'Hand the amount to the agent in person. They will record it '
+                'straight away.',
+          ),
+          _payOption(
+            Icons.account_balance_outlined,
+            'Bank transfer',
+            bankNote.isNotEmpty
+                ? bankNote
+                : 'Ask the agent for the account number, then transfer the '
+                      'amount shown above.',
+          ),
+          _payOption(
+            Icons.smartphone_outlined,
+            'E-wallet (TNG)',
+            'Ask the agent for the DuitNow / TNG number and transfer the '
+                'amount shown above.',
+          ),
+          if (payee.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                'Payee: $payee',
+                style: const TextStyle(fontSize: 12, color: _muted),
+              ),
+            ),
+          const Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: Text(
+              'Payments made this way are confirmed by the agent, so the '
+              'balance updates once they have checked the transfer.',
+              style: TextStyle(fontSize: 11.5, color: _muted, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _payOption(IconData icon, String title, String detail) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: _blue),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _ink,
+                  ),
+                ),
+                Text(
+                  detail,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _muted,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shown when the customer returns from their banking app. It does not claim
+  /// the money arrived — it cannot know that — it simply removes the friction of
+  /// finding the declaration button again.
+  Widget _returnPrompt(double selectedTotal) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF3),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_outline_rounded, color: _green, size: 22),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Back from your banking app?',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: _ink,
+                  ),
+                ),
+                Text(
+                  'Confirm the transfer so the agent can match it.',
+                  style: TextStyle(fontSize: 11.5, color: _muted, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => _declareDialog(_payAmount(selectedTotal)),
+            style: FilledButton.styleFrom(
+              backgroundColor: _green,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+            child: const Text('I have paid', style: TextStyle(fontSize: 12.5)),
+          ),
+          IconButton(
+            tooltip: 'Dismiss',
+            onPressed: () => setState(() => _showReturnPrompt = false),
+            icon: const Icon(Icons.close_rounded, size: 16, color: _muted),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actions(double totalBalance, String agentPhone) {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _declared ? null : () => _declareDialog(totalBalance),
+            icon: Icon(
+              _declared ? Icons.check_circle_rounded : Icons.done_all_rounded,
+            ),
+            label: Text(
+              _declared ? 'Payment declared' : 'I have paid',
+              style: const TextStyle(fontSize: 15),
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: _green,
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: agentPhone.isEmpty ? null : () => _contact(agentPhone),
+            icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+            label: const Text('Contact the agent'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _blue,
+              side: const BorderSide(color: _border),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _declareDialog(double totalBalance) async {
+    final amountController = TextEditingController(
+      text: totalBalance.toStringAsFixed(2),
+    );
+    final noteController = TextEditingController();
+    String? proof;
+    bool proofMissing = false;
+    final data = await _future;
+    if (data == null || !mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setSheetState) => AlertDialog(
+        title: const Text('I have paid'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Tell the agent how much you have sent. They will confirm it '
+              'against the bank statement.',
+              style: TextStyle(fontSize: 13.5, height: 1.45),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: amountController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Amount (RM)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                hintText: 'DuitNow, 6.42 pm',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 14),
+            // The agent must be able to see that the money moved before they
+            // confirm, so a screenshot is captured here and shown to them.
+            Row(
+              children: [
+                if (proof != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.memory(
+                      _decode(proof!),
+                      width: 52,
+                      height: 52,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                if (proof != null) const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final picked = await pickImageAsDataUri(context);
+                      if (picked == null) return;
+                      setSheetState(() {
+                        proof = picked;
+                        proofMissing = false;
+                      });
+                    },
+                    icon: const Icon(Icons.upload_rounded, size: 18),
+                    label: Text(
+                      proof == null
+                          ? 'Attach transfer screenshot *'
+                          : 'Replace screenshot',
+                    ),
+                  ),
+                ),
+          if (proof != null)
+            IconButton(
+              onPressed: () => setSheetState(() => proof = null),
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+              ],
+            ),
+            if (proofMissing)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Please attach the transfer screenshot so the agent can '
+                  'verify the payment.',
+                  style: TextStyle(fontSize: 11.5, color: _red),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (proof == null) {
+                setSheetState(() => proofMissing = true);
+                return;
+              }
+              final amount =
+                  double.tryParse(amountController.text.trim()) ?? 0;
+              if (amount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter an amount above zero')),
+                );
+                return;
+              }
+              if (amount > totalBalance + 0.005) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'You cannot pay more than RM '
+                      '${totalBalance.toStringAsFixed(2)}',
+                    ),
+                  ),
+                );
+                return;
+              }
+              Navigator.of(dialogContext).pop();
+              await _service.declarePayment(
+                token: widget.token,
+                ownerUid: (data['ownerUid'] ?? '').toString(),
+                customerName: (data['customerName'] ?? '').toString(),
+                amount: amount,
+                note: noteController.text.trim(),
+                proofImage: proof,
+                reconCode: (data['reconCode'] ?? '').toString(),
+                billIds: _selected.toList(),
+                billLabels: (data['bills'] as List? ?? const [])
+                    .whereType<Map>()
+                    .where(
+                      (b) => _selected.contains((b['id'] ?? '').toString()),
+                    )
+                    .map((b) {
+                      final no = (b['billNo'] ?? '').toString();
+                      final desc = (b['description'] ?? '').toString();
+                      return no.isEmpty ? desc : 'Bill $no';
+                    })
+                    .toList(),
+              );
+              if (!mounted) return;
+              setState(() => _declared = true);
+              _toast('Thank you — the agent will confirm your payment.');
+            },
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  /// Tries to open the TNG eWallet app. A personal DuitNow receive code has no
+  /// documented deep link that carries an amount, so the amount and reference
+  /// are copied first: the customer pastes them once the app is open.
+  Future<void> _contact(String phone) async {
+    final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('https://wa.me/$digits');
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      _toast('Could not open WhatsApp');
+    }
+  }
+
+  Future<void> _reload() async {
+    final future = _service.fetch(widget.token);
+    setState(() => _future = future);
+    await future;
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: _ink,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Uint8List _decode(String dataUri) {
+    final comma = dataUri.indexOf(',');
+    return base64Decode(comma >= 0 ? dataUri.substring(comma + 1) : dataUri);
+  }
+}

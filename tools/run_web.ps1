@@ -43,6 +43,9 @@ if (-not $NoDemo) { $flutterArgs += '--dart-define=DEMO=true' }
 if (-not $NoAi -and -not [string]::IsNullOrWhiteSpace($ProxyUrl)) {
   $flutterArgs += "--dart-define=REMINDER_PROXY_URL=$ProxyUrl"
 }
+# Customer statement links must point back at this local server, otherwise the
+# generated link goes to the deployed site instead of the running build.
+$flutterArgs += "--dart-define=APP_ORIGIN=http://localhost:$Port/"
 
 Write-Host ''
 Write-Host "SmartPayLA  ->  http://localhost:$Port" -ForegroundColor Cyan

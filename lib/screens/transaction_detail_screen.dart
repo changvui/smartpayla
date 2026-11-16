@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/transaction.dart';
@@ -7,6 +6,7 @@ import '../state/providers.dart';
 import '../theme.dart';
 import '../utils/platform_image.dart';
 import '../widgets/common.dart';
+import '../widgets/payment_actions.dart';
 import 'transaction_form_screen.dart';
 
 class TransactionDetailScreen extends ConsumerWidget {
@@ -175,6 +175,8 @@ class TransactionDetailScreen extends ConsumerWidget {
             _BreakdownCard(transaction: t),
             const SizedBox(height: 16),
             _DetailsCard(transaction: t),
+            const SizedBox(height: 16),
+            PaymentHistoryCard(transaction: t),
             
             // 👇 NEW RECEIPT EVIDENCE CARD (FR-06)
             if (t.receiptImagePath != null) ...[
@@ -184,11 +186,25 @@ class TransactionDetailScreen extends ConsumerWidget {
             
             const SizedBox(height: 18),
             FilledButton.icon(
-              onPressed: () => _showPaymentSheet(context, ref, t),
+              onPressed: () => recordPaymentDialog(context, ref, t),
               icon: const Icon(Icons.payments_outlined),
-              label: const Text('Update payment'),
+              label: const Text('Record payment'),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => collectStatement(context, ref, t),
+              icon: const Icon(Icons.link_rounded),
+              label: const Text('Collect payment · send link'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                foregroundColor: textColor, // 👈 Fixed
+                side: BorderSide(color: Theme.of(context).dividerColor),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -225,202 +241,8 @@ class TransactionDetailScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _save(
-    WidgetRef ref,
-    Transaction transaction,
-  ) async {
-    await ref.read(transactionsProvider.notifier).save(transaction);
-  }
 
-  Future<void> _showPaymentSheet(
-    BuildContext context,
-    WidgetRef ref,
-    Transaction transaction,
-  ) async {
-    final textColor = Theme.of(context).colorScheme.onSurface;
-    final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant;
 
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Update payment',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: textColor,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Current balance: ${money(transaction.balanceDue)}',
-                style: TextStyle(fontSize: 12.5, color: mutedColor),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.check_circle_outline_rounded,
-                  color: AppColors.green,
-                ),
-                title: const Text('Mark as fully paid'),
-                subtitle: const Text('Close the balance and count commission.'),
-                onTap: () => Navigator.pop(context, 'paid'),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.timelapse_rounded,
-                  color: AppColors.amber,
-                ),
-                title: const Text('Record a partial payment'),
-                subtitle: const Text('Add an amount received today.'),
-                onTap: () => Navigator.pop(context, 'partial'),
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(
-                  Icons.undo_rounded,
-                  color: AppColors.blue,
-                ),
-                title: const Text('Mark as unpaid'),
-                subtitle: const Text('Reset the paid amount to zero.'),
-                onTap: () => Navigator.pop(context, 'unpaid'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (action == null || !context.mounted) return;
-
-    if (action == 'paid') {
-      await _save(
-        ref,
-        transaction.copyWith(
-          status: PaymentStatus.paid,
-          advancePaid: transaction.totalAmount,
-        ),
-      );
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Marked as paid.')),
-      );
-      return;
-    }
-
-    if (action == 'unpaid') {
-      await _save(
-        ref,
-        transaction.copyWith(
-          status: PaymentStatus.unpaid,
-          advancePaid: 0,
-        ),
-      );
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Marked as unpaid.')),
-      );
-      return;
-    }
-
-    if (action == 'partial') {
-      await _recordPartial(context, ref, transaction);
-    }
-  }
-
-  Future<void> _recordPartial(
-    BuildContext context,
-    WidgetRef ref,
-    Transaction transaction,
-  ) async {
-    final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant;
-    final controller = TextEditingController(
-      text: transaction.balanceDue.toStringAsFixed(2),
-    );
-    final amount = await showDialog<double>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Record payment'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Balance due: ${money(transaction.balanceDue)}',
-              style: TextStyle(fontSize: 12.5, color: mutedColor),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d*[.,]?\d{0,2}')),
-              ],
-              decoration: const InputDecoration(
-                labelText: 'Amount received (RM)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = double.tryParse(
-                controller.text.replaceAll(',', '').trim(),
-              );
-              if (value == null || value <= 0) return;
-              Navigator.pop(context, value);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (amount == null || !context.mounted) return;
-
-    final newPaid = (transaction.advancePaid + amount).clamp(
-      0.0,
-      transaction.totalAmount,
-    );
-    final newStatus = newPaid >= transaction.totalAmount
-        ? PaymentStatus.paid
-        : PaymentStatus.partial;
-
-    await _save(
-      ref,
-      transaction.copyWith(
-        status: newStatus,
-        advancePaid: newPaid,
-      ),
-    );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          newStatus == PaymentStatus.paid
-              ? 'Payment recorded — transaction is now paid.'
-              : 'Payment recorded.',
-        ),
-      ),
-    );
-  }
 
   Future<void> _confirmDelete(
     BuildContext context,

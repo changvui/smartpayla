@@ -26,7 +26,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationBar),
-        matching: find.text('Transactions'),
+        matching: find.text('Bills'),
       ),
     );
     await tester.pumpAndSettle();

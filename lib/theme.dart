@@ -12,6 +12,9 @@ class AppColors {
   static const amber = Color(0xFFB26A00);
   static const red = Color(0xFFB3261E);
   static const blue = Color(0xFF2B5F9E);
+  // Status palette: orange = nothing paid yet, blue = partially paid,
+  // green = settled, red = overdue.
+  static const orange = Color(0xFFC2410C);
 }
 
 ThemeData buildAppTheme() {

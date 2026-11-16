@@ -35,13 +35,13 @@ String initials(String name) {
 Color statusColor(String label) {
   switch (label) {
     case 'Paid':
-      return AppColors.green;
+      return AppColors.green;          // done, money received
     case 'Partial':
-      return AppColors.amber;
-    case 'Overdue':
-      return AppColors.red;
+      return AppColors.blue;           // in progress, some money received
     case 'Unpaid':
-      return AppColors.blue;
+      return AppColors.orange;         // nothing received yet, still on time
+    case 'Overdue':
+      return AppColors.red;            // late — the only alarm colour
     // Sync state: green/teal when the cloud copy is up to date, red whenever
     // the data is not reaching Firestore (offline or a failed write).
     case 'Synced':
@@ -318,13 +318,28 @@ class UserAvatar extends ConsumerWidget {
     final photoUrl = user?.photoURL;
 
     if (photoUrl != null && photoUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: radius,
-        backgroundColor: AppColors.primary,
-        backgroundImage: NetworkImage(photoUrl),
+      // Google throttles the profile photo endpoint (HTTP 429), so a failed
+      // load must fall back to the initials instead of throwing into the zone.
+      return ClipOval(
+        child: Image.network(
+          photoUrl,
+          width: radius * 2,
+          height: radius * 2,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _initialsAvatar(
+            context,
+            ref,
+            radius,
+          ),
+        ),
       );
     }
 
+    return _initialsAvatar(context, ref, radius);
+  }
+
+  Widget _initialsAvatar(BuildContext context, WidgetRef ref, double radius) {
+    final user = ref.watch(authStateProvider).valueOrNull;
     final displayName = user?.displayName?.trim() ?? '';
     final email = user?.email?.trim() ?? '';
     final source = displayName.isNotEmpty ? displayName : email;

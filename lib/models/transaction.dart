@@ -57,7 +57,8 @@ class Transaction {
     this.invoiceDate,
     this.cashBillNumber,
     this.cashBillDate,
-    this.receiptImagePath, // 👈 ADDED HERE
+    this.receiptImagePath,
+    this.evidenceReason,
   });
 
   final String id;
@@ -76,7 +77,15 @@ class Transaction {
   final DateTime? invoiceDate;
   final String? cashBillNumber;
   final DateTime? cashBillDate;
-  final String? receiptImagePath; // 👈 ADDED HERE (Stores the file path)
+  final String? receiptImagePath;
+
+  /// Why no photograph of the paper bill exists (phone order, bill not issued,
+  /// customer kept it). A transaction must carry either a photo or a reason.
+  final String? evidenceReason;
+
+  bool get hasEvidence =>
+      (receiptImagePath != null && receiptImagePath!.isNotEmpty) ||
+      (evidenceReason != null && evidenceReason!.isNotEmpty);
 
   double get balanceDue => math.max(0, totalAmount - advancePaid);
   bool get isPaid => status == PaymentStatus.paid;
@@ -126,7 +135,8 @@ class Transaction {
     DateTime? invoiceDate,
     String? cashBillNumber,
     DateTime? cashBillDate,
-    String? receiptImagePath, // 👈 ADDED HERE
+    String? receiptImagePath,
+    String? evidenceReason,
   }) {
     return Transaction(
       id: id,
@@ -144,7 +154,8 @@ class Transaction {
       invoiceDate: invoiceDate ?? this.invoiceDate,
       cashBillNumber: cashBillNumber ?? this.cashBillNumber,
       cashBillDate: cashBillDate ?? this.cashBillDate,
-      receiptImagePath: receiptImagePath ?? this.receiptImagePath, // 👈 ADDED HERE
+      receiptImagePath: receiptImagePath ?? this.receiptImagePath,
+      evidenceReason: evidenceReason ?? this.evidenceReason,
     );
   }
 
@@ -165,7 +176,8 @@ class Transaction {
       'invoiceDate': invoiceDate?.toIso8601String(),
       'cashBillNumber': cashBillNumber,
       'cashBillDate': cashBillDate?.toIso8601String(),
-      'receiptImagePath': receiptImagePath, // 👈 ADDED HERE
+      'receiptImagePath': receiptImagePath,
+      'evidenceReason': evidenceReason,
     };
   }
 
@@ -198,7 +210,8 @@ class Transaction {
       invoiceDate: parseNullableDate(json['invoiceDate']),
       cashBillNumber: json['cashBillNumber']?.toString(),
       cashBillDate: parseNullableDate(json['cashBillDate']),
-      receiptImagePath: json['receiptImagePath']?.toString(), // 👈 ADDED HERE
+      receiptImagePath: json['receiptImagePath']?.toString(),
+      evidenceReason: json['evidenceReason']?.toString(),
     );
   }
 }

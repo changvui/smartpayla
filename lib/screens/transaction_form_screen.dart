@@ -1,15 +1,20 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/customer.dart';
+import '../models/payment.dart';
 import '../models/transaction.dart';
 import '../services/receipt_store.dart';
 import '../services/scanned_bill.dart';
 import '../state/providers.dart';
 import '../theme.dart';
+import '../utils/names.dart';
 import '../utils/platform_image.dart';
 import '../widgets/common.dart';
 import 'ocr_scanner_screen.dart';
@@ -59,6 +64,9 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
   /// Path/URL of the attached bill photo, if any.
   String? _receiptPath;
+
+  /// Why no photograph exists. A transaction needs one or the other.
+  String? _evidenceReason;
 
   /// True while the photo is being saved to the app's storage.
   bool _uploadingBill = false;
@@ -134,7 +142,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Filled from the scanned bill — please check every field.'),
+        content: Text('Filled from the scanned bill — please check every field.'),
         duration: Duration(seconds: 3),
       ),
     );
@@ -199,7 +207,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   }
 
   /// One item row, laid out as two lines so it fits a 360 dp phone:
-  ///   [ description ................................  ✕ ]
+  ///   [ description ................................  ✨ ]
   ///   [ Qty ]   [ Price (RM) ]        RM 30.00
   Widget _buildLineRow(BuildContext context, int index) {
     final line = _lines[index];
@@ -448,11 +456,16 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                   children: [
                     TextFormField(
                       controller: _customer,
-                      textCapitalization: TextCapitalization.words,
+                      // Read-only on purpose: the customer is a record in the
+                      // Customers list, not a string typed per bill. Free text
+                      // used to split one person into several "customers" and
+                      // broke the statement link and the claim matching.
+                      readOnly: true,
+                      onTap: _pickCustomer,
                       decoration: _decoration(
                         context,
-                        'Customer name',
-                        hint: 'e.g. Ahmad Faizal',
+                        'Customer *',
+                        hint: 'Tap to choose from the Customers list',
                         suffixIcon: IconButton(
                           tooltip: 'Pick from customers',
                           icon: const Icon(Icons.people_outline_rounded, size: 20),
@@ -461,7 +474,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
-                          return 'Enter the customer name';
+                          return 'Choose a customer';
                         }
                         return null;
                       },
@@ -513,7 +526,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
               const SizedBox(height: 20),
               const _SectionLabel(
                 icon: Icons.photo_camera_outlined,
-                title: 'Bill photo',
+                title: 'Bill photo (what was sold)',
               ),
               AppCard(
                 child: _uploadingBill
@@ -526,7 +539,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            'Saving the photo…',
+                            'Saving the photoÃ¢â‚¬Â¦',
                             style: TextStyle(
                               fontSize: 12.5,
                               color: Theme.of(context)
@@ -790,7 +803,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
               const SizedBox(height: 20),
               const _SectionLabel(
                 icon: Icons.description_outlined,
-                title: 'Reference documents (optional)',
+                title: 'Reference documents (at least one required)',
               ),
               AppCard(
                 child: Column(
@@ -799,7 +812,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                       controller: _invoice,
                       decoration: _decoration(
                         context,
-                        'Invoice number',
+                        'Invoice number *',
                         hint: 'e.g. INV-2026-041',
                       ),
                     ),
@@ -821,8 +834,26 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                       controller: _cashBill,
                       decoration: _decoration(
                         context,
-                        'Cash bill number',
+                        'Cash bill number *',
                         hint: 'e.g. CB-0912',
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () {
+                          final now = DateTime.now();
+                          final suffix = Random().nextInt(9000) + 1000;
+                          final y = now.year.toString().substring(2);
+                          final m = now.month.toString().padLeft(2, '0');
+                          final d = now.day.toString().padLeft(2, '0');
+                          setState(() {
+                            _cashBill.text = 'CB-$y$m$d-$suffix';
+                            _cashBillDate ??= now;
+                          });
+                        },
+                        icon: const Icon(Icons.auto_fix_high_rounded, size: 16),
+                        label: const Text('Generate a bill number'),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -942,8 +973,89 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     if (picked != null) onPicked(picked);
   }
 
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+  /// Asked once, when a bill is saved without a photograph. Returns null when
+  /// the agent cancels, which also cancels the save.
+  Future<String?> _askEvidenceReason() async {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('No bill photo'),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text(
+              'A transaction needs either a photo of the paper bill or a '
+              'recorded reason. Pick the reason that applies.',
+              style: TextStyle(fontSize: 13, height: 1.45),
+            ),
+          ),
+          for (final reason in const [
+            'Phone order',
+            'Bill not issued',
+            'Customer kept the bill',
+            'Photo not possible',
+          ])
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(reason),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(reason),
+              ),
+            ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('Cancel — I will take a photo'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _save() async {    if (!_formKey.currentState!.validate()) return;
+    // Every debt must be backed by something: a photograph of the paper bill or
+    // a recorded reason why there is none. A blank record is not accepted.
+    if (_receiptPath == null && _evidenceReason == null) {
+      final reason = await _askEvidenceReason();
+      if (reason == null) return;
+      setState(() => _evidenceReason = reason);
+    }
+    // A sale must be identifiable: at least one reference number, and it must
+    // not already belong to another bill.
+    if (!mounted) return;
+    final billNo = _cashBill.text.trim().isEmpty
+        ? _invoice.text.trim()
+        : _cashBill.text.trim();
+    if (billNo.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter an invoice number or a cash bill number so the sale can be '
+            'tracked.',
+          ),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+    final clash = (ref.read(transactionsProvider).valueOrNull ?? const [])
+        .any(
+          (t) =>
+              t.id != widget.transaction?.id &&
+              (t.cashBillNumber == billNo || t.invoiceNumber == billNo),
+        );
+    if (clash) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Reference $billNo is already used by another bill.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+
     final total = _amount(_total.text)!;
     final advance = _effectiveAdvance;
     final now = DateTime.now();
@@ -951,7 +1063,7 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
 
         final transaction = Transaction(
       id: existing?.id ?? const Uuid().v4(),
-      customerName: _customer.text.trim(),
+      customerName: normaliseCustomerName(_customer.text),
       itemDescription: _item.text.trim(),
       totalAmount: total,
       advancePaid: advance,
@@ -966,13 +1078,26 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       cashBillNumber:
           _cashBill.text.trim().isEmpty ? null : _cashBill.text.trim(),
       cashBillDate: _cashBillDate,
-      // 👇 ADD THIS LINE
       receiptImagePath: _receiptPath,
+      evidenceReason: _evidenceReason,
     );
 
     setState(() => _saving = true);
     try {
       await ref.read(transactionsProvider.notifier).save(transaction);
+      // An advance typed on the form becomes a real payment record, so the
+      // ledger stays the single source of truth for the balance.
+      if (existing == null && advance > 0) {
+        await ref
+            .read(paymentServiceProvider)
+            .record(
+              ownerUid: ref.read(dataOwnerProvider),
+              transaction: transaction,
+              amount: advance,
+              method: PaymentMethod.cash,
+              note: 'Advance paid at sale',
+            );
+      }
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
@@ -1125,6 +1250,80 @@ class _CustomerPickerSheet extends ConsumerStatefulWidget {
 class _CustomerPickerSheetState extends ConsumerState<_CustomerPickerSheet> {
   String _query = '';
 
+  /// Creates a customer profile (name + phone) so the sale is always attached to
+  /// a real record instead of a free-typed string. A name that already exists,
+  /// ignoring case and spacing, is reused rather than duplicated.
+  Future<String?> _createCustomer(BuildContext context, WidgetRef ref) async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final existing = ref.read(customerProvider).valueOrNull ?? const [];
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('New customer'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Name *',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Phone (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = normaliseCustomerName(nameController.text);
+              if (name.isEmpty) return;
+              Navigator.of(dialogContext).pop(name);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result == null) return null;
+
+    String key(String value) =>
+        value.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    final match = existing
+        .where((c) => key(c.name) == key(result))
+        .firstOrNull;
+    if (match != null) return match.name;
+
+    await ref
+        .read(customerProvider.notifier)
+        .addCustomer(
+          Customer(
+            id: const Uuid().v4(),
+            name: result,
+            phone: phoneController.text.trim().isEmpty
+                ? 'No phone'
+                : phoneController.text.trim(),
+            address: 'Not set',
+          ),
+        );
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final textColor = Theme.of(context).colorScheme.onSurface;
@@ -1204,9 +1403,38 @@ class _CustomerPickerSheetState extends ConsumerState<_CustomerPickerSheet> {
 
                   return ListView.separated(
                     padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                    itemCount: filtered.length,
+                    itemCount: filtered.length + 1,
                     separatorBuilder: (_, __) => const SizedBox(height: 4),
                     itemBuilder: (context, index) {
+                      if (index == filtered.length) {
+                        return ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          leading: const CircleAvatar(
+                            backgroundColor: AppColors.primary,
+                            child: Icon(Icons.add_rounded, color: Colors.white),
+                          ),
+                          title: const Text(
+                            'New customer',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Saved to the Customers list',
+                            style: TextStyle(fontSize: 11.5),
+                          ),
+                          onTap: () async {
+                            final created = await _createCustomer(context, ref);
+                            if (created == null) return;
+                            if (context.mounted) {
+                              Navigator.of(context).pop(created);
+                            }
+                          },
+                        );
+                      }
                       final customer = filtered[index];
                       final initial = customer.name.trim().isEmpty
                           ? '?'

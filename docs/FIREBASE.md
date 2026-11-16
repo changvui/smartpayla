@@ -40,15 +40,41 @@ users/{uid}/transactions/{transactionId}
 
 ## 3. Firestore rules
 
-For the final integrated build, scope every transaction to its signed-in owner:
+For the final integrated build, scope every transaction to its signed-in owner.
+The full rule set also covers the customer statement links and the payment
+claims they produce; copy `firestore.rules` from the project root into
+**Firestore → Rules** and publish:
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/transactions/{transactionId} {
+
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null
                          && request.auth.uid == userId;
+    }
+
+    // Public statement snapshot: read by token, written by the agent only.
+    match /statements/{token} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null
+                                    && request.auth.uid == request.resource.data.ownerUid;
+    }
+
+    match /statementIndex/{docId} {
+      allow read, write: if request.auth != null
+                         && docId.split('__')[0] == request.auth.uid;
+    }
+
+    // A customer can only declare a payment; the agent confirms it.
+    match /paymentClaims/{claimId} {
+      allow create: if request.resource.data.status == 'pending'
+                    && request.resource.data.amount > 0
+                    && exists(/databases/$(database)/documents/statements/$(request.resource.data.token));
+      allow read, update: if request.auth != null
+                          && request.auth.uid == resource.data.ownerUid;
+      allow delete: if false;
     }
   }
 }

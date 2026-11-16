@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/transaction.dart';
@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import '../widgets/sync_badge.dart';
 import '../widgets/transaction_tile.dart';
+import 'claims_screen.dart';
 import 'commission_screen.dart';
 import 'transaction_detail_screen.dart';
 import 'transaction_form_screen.dart';
@@ -150,6 +151,7 @@ class _HomeContent extends StatelessWidget {
             const SectionHeader(title: 'Debt aging'),
             _AgingCard(aging: aging, total: outstanding),
             const SizedBox(height: 22),
+            const _PendingClaimsBanner(),
             const SectionHeader(title: 'Quick actions'),
             
             Row(
@@ -649,6 +651,73 @@ class _QuickAction extends StatelessWidget {
         ),
       ),
       child: child,
+    );
+  }
+}
+/// Surfaces customer payment claims on the dashboard, so a confirmation is
+/// never more than one tap away.
+class _PendingClaimsBanner extends ConsumerWidget {
+  const _PendingClaimsBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final claims = ref.watch(pendingClaimsProvider).valueOrNull ?? const [];
+    if (claims.isEmpty) return const SizedBox.shrink();
+
+    final total = claims.fold<double>(
+      0,
+      (sum, claim) => sum + ((claim['amount'] as num?)?.toDouble() ?? 0),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ClaimsScreen()),
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.price_check_rounded, color: AppColors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      claims.length == 1
+                          ? '1 payment to confirm'
+                          : '${claims.length} payments to confirm',
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      'Declared by customers · RM '
+                      '${total.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

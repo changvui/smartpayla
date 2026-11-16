@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart'; 
@@ -9,11 +9,14 @@ import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
 import '../data/firebase_config.dart';
 import '../data/firestore_transaction_repository.dart';
 import '../data/transaction_repository.dart';
+import '../models/payment.dart';
 import '../models/reminder.dart';
 import '../models/transaction.dart';
 import '../models/customer.dart'; 
 import '../services/cloud_sync_service.dart';
 import '../services/reminder_service.dart';
+import '../services/payment_service.dart';
+import '../services/statement_service.dart';
 import 'auth_provider.dart';
 
 /// Overridden in main() after SharedPreferences has loaded.
@@ -118,12 +121,47 @@ class TransactionsNotifier extends AsyncNotifier<List<Transaction>> {
     await _repo.save(transaction);
     state = AsyncData(await _repo.getAll());
     unawaited(_cloud.push(transaction));
+    // The customer page is a published snapshot: republish it so a bill added
+    // after the link was sent shows up without pressing Collect again.
+    unawaited(_syncStatement(transaction.customerName));
   }
 
   Future<void> delete(String id) async {
+    final removed = state.valueOrNull?.where((t) => t.id == id).firstOrNull;
     await _repo.delete(id);
     state = AsyncData(await _repo.getAll());
     unawaited(_cloud.delete(id));
+    if (removed != null) unawaited(_syncStatement(removed.customerName));
+  }
+
+  /// Refreshes the public statement for one customer, ignoring failures: a
+  /// statement that cannot be refreshed must never block saving a bill.
+  Future<void> _syncStatement(String customerName) async {
+    if (!FirebaseRuntime.initialized) return;
+    try {
+      final items = state.valueOrNull ?? const <Transaction>[];
+      final open = items
+          .where((t) => t.customerName == customerName && t.isOpen)
+          .toList();
+      final owner = ref.read(dataOwnerProvider);
+      final payments = ref.read(paymentServiceProvider);
+      final byTransaction = <String, List<Payment>>{};
+      for (final bill in open) {
+        byTransaction[bill.id] = await payments.forTransaction(owner, bill.id);
+      }
+      await ref
+          .read(statementServiceProvider)
+          .publish(
+            ownerUid: owner,
+            customerName: customerName,
+            openBills: open,
+            paymentsByTransaction: byTransaction,
+            settings: ref.read(settingsProvider),
+            agentPhone: '',
+          );
+    } catch (_) {
+      // Offline or rules not published: the link is refreshed next time.
+    }
   }
 
   Future<void> clear() async {
@@ -150,20 +188,49 @@ class AppSettings {
   const AppSettings({
     required this.commissionRate,
     this.defaultTone = ReminderTone.formal,
+    this.shopName = 'SmartPayLA',
+    this.payeeName = '',
+    this.bankNote = '',
+    this.paymentQr,
   });
 
   final double commissionRate;
   final ReminderTone defaultTone;
 
+  /// Shown at the top of the customer statement.
+  final String shopName;
+
+  /// Name that appears on the DuitNow transfer, e.g. "Kedai Ah Seng".
+  final String payeeName;
+
+  /// Free text such as "Maybank 1234-5678-9012".
+  final String bankNote;
+
+  /// The agent's DuitNow QR, stored as a data URI so it travels with the
+  /// statement snapshot. Null until the agent uploads one.
+  final String? paymentQr;
+
   double get commissionPercent => commissionRate * 100;
+
+  bool get hasPaymentDetails =>
+      (paymentQr != null && paymentQr!.isNotEmpty) || bankNote.isNotEmpty;
 
   AppSettings copyWith({
     double? commissionRate,
     ReminderTone? defaultTone,
+    String? shopName,
+    String? payeeName,
+    String? bankNote,
+    String? paymentQr,
+    bool clearQr = false,
   }) {
     return AppSettings(
       commissionRate: commissionRate ?? this.commissionRate,
       defaultTone: defaultTone ?? this.defaultTone,
+      shopName: shopName ?? this.shopName,
+      payeeName: payeeName ?? this.payeeName,
+      bankNote: bankNote ?? this.bankNote,
+      paymentQr: clearQr ? null : (paymentQr ?? this.paymentQr),
     );
   }
 }
@@ -171,15 +238,64 @@ class AppSettings {
 class SettingsNotifier extends Notifier<AppSettings> {
   static const _commissionKey = 'smartpayla_commission_rate';
   static const _toneKey = 'smartpayla_default_tone';
+  static const _shopKey = 'smartpayla_shop_name';
+  static const _payeeKey = 'smartpayla_payee_name';
+  static const _bankKey = 'smartpayla_bank_note';
+  static const _qrKey = 'smartpayla_payment_qr';
 
   @override
   AppSettings build() {
     final prefs = ref.watch(sharedPreferencesProvider);
+    // The payment details live in Firestore so the QR survives a new browser,
+    // another device, or an app reinstall. Local storage stays as a cache.
+    Future.microtask(_hydratePaymentFromCloud);
     return AppSettings(
       commissionRate: prefs.getDouble(_commissionKey) ?? 0.05,
       defaultTone:
           ReminderToneX.fromName(prefs.getString(_toneKey) ?? 'formal'),
+      shopName: prefs.getString(_shopKey) ?? 'SmartPayLA',
+      payeeName: prefs.getString(_payeeKey) ?? '',
+      bankNote: prefs.getString(_bankKey) ?? '',
+      paymentQr: prefs.getString(_qrKey),
     );
+  }
+
+  DocumentReference<Map<String, dynamic>>? get _paymentDoc {
+    if (!FirebaseRuntime.initialized) return null;
+    final owner = ref.read(dataOwnerProvider);
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(owner)
+        .collection('settings')
+        .doc('payment');
+  }
+
+  /// Pulls the saved QR / payee details from Firestore into the local state.
+  Future<void> _hydratePaymentFromCloud() async {
+    final doc = _paymentDoc;
+    if (doc == null) return;
+    try {
+      final snapshot = await doc.get();
+      final data = snapshot.data();
+      if (data == null) return;
+      final prefs = ref.read(sharedPreferencesProvider);
+      final shop = (data['shopName'] ?? state.shopName).toString();
+      final payee = (data['payeeName'] ?? state.payeeName).toString();
+      final bank = (data['bankNote'] ?? state.bankNote).toString();
+      final qr = data['paymentQr']?.toString();
+      await prefs.setString(_shopKey, shop);
+      await prefs.setString(_payeeKey, payee);
+      await prefs.setString(_bankKey, bank);
+      if (qr != null) await prefs.setString(_qrKey, qr);
+      state = state.copyWith(
+        shopName: shop,
+        payeeName: payee,
+        bankNote: bank,
+        paymentQr: qr,
+      );
+    } catch (_) {
+      // Offline or rules not published: the local cache is used.
+    }
   }
 
   Future<void> setCommissionRate(double rate) async {
@@ -194,6 +310,51 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await prefs.setString(_toneKey, tone.name);
     state = state.copyWith(defaultTone: tone);
   }
+
+  Future<void> setPaymentDetails({
+    String? shopName,
+    String? payeeName,
+    String? bankNote,
+    String? paymentQr,
+  }) async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    if (shopName != null) await prefs.setString(_shopKey, shopName);
+    if (payeeName != null) await prefs.setString(_payeeKey, payeeName);
+    if (bankNote != null) await prefs.setString(_bankKey, bankNote);
+    if (paymentQr != null) await prefs.setString(_qrKey, paymentQr);
+    state = state.copyWith(
+      shopName: shopName,
+      payeeName: payeeName,
+      bankNote: bankNote,
+      paymentQr: paymentQr,
+    );
+    await _pushPaymentToCloud();
+  }
+
+  /// Mirrors the payment details into Firestore so every device (and every
+  /// statement generated later) sees the same QR.
+  Future<void> _pushPaymentToCloud() async {
+    final doc = _paymentDoc;
+    if (doc == null) return;
+    try {
+      await doc.set({
+        'shopName': state.shopName,
+        'payeeName': state.payeeName,
+        'bankNote': state.bankNote,
+        'paymentQr': state.paymentQr,
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
+    } catch (_) {
+      // Keep the local copy; the next save retries.
+    }
+  }
+
+  Future<void> clearPaymentQr() async {
+    final prefs = ref.read(sharedPreferencesProvider);
+    await prefs.remove(_qrKey);
+    state = state.copyWith(clearQr: true);
+    await _pushPaymentToCloud();
+  }
 }
 
 final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
@@ -203,6 +364,23 @@ final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
 final reminderServiceProvider = Provider<ReminderService>((ref) {
   return ReminderService();
 });
+
+/// Builds the public statement snapshots the customer link points at.
+final statementServiceProvider = Provider<StatementService>((ref) {
+  return StatementService();
+});
+
+final paymentServiceProvider = Provider<PaymentService>((ref) {
+  return PaymentService();
+});
+
+/// Payments a customer declared from the statement link. Drives the pending
+/// badge on the dashboard and the confirmation queue.
+final pendingClaimsProvider =
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+      final owner = ref.watch(dataOwnerProvider);
+      return ref.watch(paymentServiceProvider).pendingClaims(owner);
+    });
 
 class ReminderHistoryNotifier extends AsyncNotifier<List<ReminderRecord>> {
   static const _key = 'smartpayla_reminders_v1';

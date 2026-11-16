@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/firebase_config.dart';
+import 'screens/customer_statement_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
 import 'state/auth_provider.dart';
@@ -14,6 +15,9 @@ class SmartPayLaApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDarkMode = ref.watch(themeModeProvider);
+    // A customer opens a statement from WhatsApp: `?s=<token>` renders the
+    // read-only page and never touches the sign-in flow.
+    final statementToken = Uri.base.queryParameters['s'];
 
     return MaterialApp(
       title: 'SmartPayLA',
@@ -23,7 +27,9 @@ class SmartPayLaApp extends ConsumerWidget {
       darkTheme: buildDarkAppTheme(), // 👈 Use the new function here
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       
-      home: const AuthGate(), 
+      home: statementToken == null || statementToken.isEmpty
+          ? const AuthGate()
+          : CustomerStatementScreen(token: statementToken),
     );
   }
 }

@@ -329,6 +329,43 @@ class SettingsNotifier extends Notifier<AppSettings> {
       paymentQr: paymentQr,
     );
     await _pushPaymentToCloud();
+    await _refreshAllStatements();
+  }
+
+  /// Re-publishes every open statement, so a QR uploaded now appears on links
+  /// that were created before the upload.
+  Future<void> _refreshAllStatements() async {
+    try {
+      final transactions =
+          ref.read(transactionsProvider).valueOrNull ?? const <Transaction>[];
+      final open = transactions.where((t) => t.isOpen).toList();
+      if (open.isEmpty) return;
+
+      final byCustomer = <String, List<Transaction>>{};
+      for (final bill in open) {
+        byCustomer.putIfAbsent(bill.customerName, () => []).add(bill);
+      }
+
+      final owner = ref.read(dataOwnerProvider);
+      final payments = ref.read(paymentServiceProvider);
+      final statements = ref.read(statementServiceProvider);
+      for (final entry in byCustomer.entries) {
+        final byTransaction = <String, List<Payment>>{};
+        for (final bill in entry.value) {
+          byTransaction[bill.id] = await payments.forTransaction(owner, bill.id);
+        }
+        await statements.publish(
+          ownerUid: owner,
+          customerName: entry.key,
+          openBills: entry.value,
+          paymentsByTransaction: byTransaction,
+          settings: state,
+          agentPhone: '',
+        );
+      }
+    } catch (_) {
+      // Offline or rules not published: links refresh on the next save.
+    }
   }
 
   /// Mirrors the payment details into Firestore so every device (and every

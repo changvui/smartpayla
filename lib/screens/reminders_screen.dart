@@ -264,6 +264,10 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
                 onCopy: () => _copy(_result!.text),
                 onShare: () => _share(_result!.text), // 👈 Added Share
               ),
+              if (_result != null) ...[
+                const SizedBox(height: 8),
+                _linkStatus(_result!.text),
+              ],
             ],
             const SizedBox(height: 22),
             SectionHeader(
@@ -409,6 +413,31 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
       // No link is better than a broken reminder: keep the generated text.
       return result;
     }
+  }
+
+  /// Tells the agent whether the message carries a payment link, and why not.
+  Widget _linkStatus(String text) {
+    final hasLink = text.contains('Pay here:');
+    final color = hasLink ? AppColors.green : AppColors.orange;
+    return Row(
+      children: [
+        Icon(
+          hasLink ? Icons.link_rounded : Icons.link_off_rounded,
+          size: 15,
+          color: color,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            hasLink
+                ? 'Payment link included — the customer can pay from the message.'
+                : 'No payment link: sign in and publish the Firestore rules to '
+                      'include one.',
+            style: TextStyle(fontSize: 11.5, color: color, height: 1.35),
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _copy(String text) async {

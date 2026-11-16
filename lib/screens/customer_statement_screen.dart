@@ -60,6 +60,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   late Future<Map<String, dynamic>?> _future;
   bool _declared = false;
   bool _sending = false;
+  String? _lastError;
 
   /// Bills the customer wants to settle now. Defaults to all of them.
   final Set<String> _selected = {};
@@ -292,6 +293,38 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           if (_showReturnPrompt && !_declared) ...[
             const SizedBox(height: 12),
             _returnPrompt(selectedTotal),
+          ],
+          if (_lastError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFECACA)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded,
+                      size: 18, color: _red),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Could not send: $_lastError',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _red,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => setState(() => _lastError = null),
+                    icon: const Icon(Icons.close_rounded, size: 16),
+                  ),
+                ],
+              ),
+            ),
           ],
           const SizedBox(height: 16),
           _actions(_payAmount(selectedTotal), agentPhone),
@@ -1402,15 +1435,49 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     .toList(),
               );
               } catch (error) {
-                if (!mounted) return;
-                setState(() => _sending = false);
                 final raw = error.toString();
-                _toast(
-                  raw.contains('permission-denied')
-                      ? 'Could not send: the agent has not published the '
-                            'Firestore rules yet.'
-                      : 'Could not send: $raw',
-                );
+                final tooLarge = raw.contains('invalid-argument') ||
+                    raw.contains('exceed') ||
+                    raw.contains('too large') ||
+                    raw.contains('maximum');
+                // Android browsers hand back much larger screenshots than iOS.
+                // Firestore rejects a document over 1 MiB, so retry once without
+                // the image: the claim still reaches the agent.
+                if (tooLarge && proof != null) {
+                  try {
+                    await _service.declarePayment(
+                      token: widget.token,
+                      ownerUid: (data['ownerUid'] ?? '').toString(),
+                      customerName: (data['customerName'] ?? '').toString(),
+                      amount: amount,
+                      note: noteController.text.trim(),
+                      reconCode: (data['reconCode'] ?? '').toString(),
+                      billIds: _selected.toList(),
+                      billLabels: const <String>[],
+                    );
+                    if (!mounted) return;
+                    setState(() {
+                      _sending = false;
+                      _declared = true;
+                      _lastError = null;
+                    });
+                    _toast(
+                      'Payment declared. The screenshot was too large to send, '
+                      'so the agent will ask for it.',
+                    );
+                    return;
+                  } catch (_) {
+                    // Fall through to the error message below.
+                  }
+                }
+                if (!mounted) return;
+                setState(() {
+                  _sending = false;
+                  _lastError = raw.contains('permission-denied')
+                      ? 'The agent has not published the Firestore rules yet, '
+                            'so the payment could not be sent.'
+                      : raw;
+                });
                 return;
               }
               if (!mounted) return;

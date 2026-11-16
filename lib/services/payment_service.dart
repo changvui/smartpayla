@@ -185,13 +185,18 @@ class PaymentService {
       return Stream.value(const []);
     }
     ownerUid = _owner(ownerUid);
+    // Only one equality filter, so no composite index is required; the status
+    // is filtered here instead. Two `where` clauses used to make the whole
+    // stream fail with failed-precondition, which hid every claim silently.
     return _db
         .collection('paymentClaims')
         .where('ownerUid', isEqualTo: ownerUid)
-        .where('status', isEqualTo: 'pending')
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs.map((d) => d.data()).toList()
+          (snapshot) => snapshot.docs
+              .map((d) => d.data())
+              .where((data) => (data['status'] ?? '') == 'pending')
+              .toList()
             ..sort(
               (a, b) => (b['declaredAt'] ?? '')
                   .toString()

@@ -763,7 +763,28 @@ class _PendingClaimsBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final claims = ref.watch(pendingClaimsProvider).valueOrNull ?? const [];
+    final async = ref.watch(pendingClaimsProvider);
+    if (async.hasError) {
+      // Never hide a broken stream behind an empty banner: a failed query looks
+      // exactly like "no claims", which is the worst possible feedback.
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded,
+                size: 16, color: AppColors.red),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Could not load payment claims: ${async.error}',
+                style: const TextStyle(fontSize: 11.5, color: AppColors.red),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final claims = async.valueOrNull ?? const [];
     if (claims.isEmpty) return const SizedBox.shrink();
 
     final total = claims.fold<double>(

@@ -59,6 +59,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     with WidgetsBindingObserver {
   late Future<Map<String, dynamic>?> _future;
   bool _declared = false;
+  bool _sending = false;
 
   /// Bills the customer wants to settle now. Defaults to all of them.
   final Set<String> _selected = {};
@@ -1334,6 +1335,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 return;
               }
               Navigator.of(dialogContext).pop();
+              setState(() => _sending = true);
+              try {
               await _service.declarePayment(
                 token: widget.token,
                 ownerUid: (data['ownerUid'] ?? '').toString(),
@@ -1355,11 +1358,32 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     })
                     .toList(),
               );
+              } catch (error) {
+                if (!mounted) return;
+                setState(() => _sending = false);
+                final raw = error.toString();
+                _toast(
+                  raw.contains('permission-denied')
+                      ? 'Could not send: the agent has not published the '
+                            'Firestore rules yet.'
+                      : 'Could not send: $raw',
+                );
+                return;
+              }
               if (!mounted) return;
-              setState(() => _declared = true);
+              setState(() {
+                _sending = false;
+                _declared = true;
+              });
               _toast('Thank you — the agent will confirm your payment.');
             },
-            child: const Text('Send'),
+            child: _sending
+                ? const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Send'),
           ),
         ],
       ),

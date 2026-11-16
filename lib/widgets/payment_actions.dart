@@ -21,7 +21,7 @@ String _money(double value) => 'RM ${NumberFormat('#,##0.00').format(value)}';
 /// screenshots (gallery).
 Future<String?> pickImageAsDataUri(
   BuildContext context, {
-  int maxWidth = 1000,
+  int maxWidth = 800,
 }) async {
   final source = await showModalBottomSheet<ImageSource>(
     context: context,
@@ -50,7 +50,7 @@ Future<String?> pickImageAsDataUri(
   final file = await ImagePicker().pickImage(
     source: source,
     maxWidth: maxWidth.toDouble(),
-    imageQuality: 70,
+    imageQuality: 65,
   );
   if (file == null) return null;
   final bytes = await file.readAsBytes();

@@ -472,37 +472,3 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
     );
   }
 }
-
-/// Small A/B/C/D pill for a customer's credit score.
-class CreditBadge extends StatelessWidget {
-  const CreditBadge({super.key, required this.band, required this.score});
-
-  final String band;
-  final double score;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (band) {
-      'A' => AppColors.green,
-      'B' => AppColors.primary,
-      'C' => AppColors.orange,
-      'D' => AppColors.red,
-      _ => AppColors.muted,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '$band · ${score.round()}',
-        style: TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w800,
-          color: color,
-        ),
-      ),
-    );
-  }
-}

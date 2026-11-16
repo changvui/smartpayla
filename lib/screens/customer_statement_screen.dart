@@ -1115,6 +1115,47 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     );
   }
 
+  /// Shown after the declaration is stored, so the customer knows the agent
+  /// still has to confirm it against the bank statement.
+  Widget _declaredCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF3),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: _green, size: 24),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Payment declared',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: _green,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'The agent will check the transfer and confirm it. Your '
+                  'balance updates once they do.',
+                  style: TextStyle(fontSize: 12, color: _ink, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _returnPrompt(double selectedTotal) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1168,10 +1209,12 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   Widget _actions(double totalBalance, String agentPhone) {
     return Column(
       children: [
+        if (_declared) _declaredCard(),
+        if (!_declared)
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(
-            onPressed: _declared ? null : () => _declareDialog(totalBalance),
+            onPressed: () => _declareDialog(totalBalance),
             icon: Icon(
               _declared ? Icons.check_circle_rounded : Icons.done_all_rounded,
             ),
@@ -1280,9 +1323,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     },
                     icon: const Icon(Icons.upload_rounded, size: 18),
                     label: Text(
-                      proof == null
-                          ? 'Attach transfer screenshot *'
-                          : 'Replace screenshot',
+                      proof == null ? 'Attach screenshot *' : 'Replace',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),

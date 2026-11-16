@@ -658,54 +658,93 @@ class PaymentHistoryCard extends ConsumerWidget {
     Payment payment,
   ) async {
     final reasonController = TextEditingController();
+    String? error;
+
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Void this payment?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'The payment stays in the history but stops counting towards the '
-              'balance.',
-              style: TextStyle(fontSize: 13, height: 1.45),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonController,
-              decoration: const InputDecoration(
-                labelText: 'Reason',
-                hintText: 'Wrong amount / duplicate',
-                border: OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Void this payment?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'The payment stays in the history but stops counting towards '
+                'the balance. A reason is required: an unexplained void is the '
+                'same as deleting the record.',
+                style: TextStyle(fontSize: 13, height: 1.45),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                autofocus: true,
+                onChanged: (_) {
+                  if (error != null) setDialogState(() => error = null);
+                },
+                decoration: InputDecoration(
+                  labelText: 'Reason *',
+                  hintText: 'Wrong amount / duplicate / customer disputed',
+                  border: const OutlineInputBorder(),
+                  errorText: error,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final preset in const [
+                    'Wrong amount',
+                    'Duplicate entry',
+                    'Wrong customer',
+                    'Customer disputed',
+                  ])
+                    ActionChip(
+                      label: Text(
+                        preset,
+                        style: const TextStyle(fontSize: 11.5),
+                      ),
+                      onPressed: () {
+                        reasonController.text = preset;
+                        setDialogState(() => error = null);
+                      },
+                    ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+              onPressed: () async {
+                final reason = reasonController.text.trim();
+                if (reason.isEmpty) {
+                  setDialogState(
+                    () => error = 'Explain why this payment is being voided',
+                  );
+                  return;
+                }
+                Navigator.of(dialogContext).pop();
+                await ref
+                    .read(paymentServiceProvider)
+                    .voidPayment(
+                      ownerUid: ref.read(dataOwnerProvider),
+                      transaction: transaction,
+                      payment: payment,
+                      reason: reason,
+                    );
+                await ref.read(transactionsProvider.notifier).refresh();
+                await refreshCustomerStatement(ref, transaction.customerName);
+              },
+              child: const Text('Void'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.red),
-            onPressed: () async {
-              Navigator.of(dialogContext).pop();
-              await ref
-                  .read(paymentServiceProvider)
-                  .voidPayment(
-                    ownerUid: ref.read(dataOwnerProvider),
-                    transaction: transaction,
-                    payment: payment,
-                    reason: reasonController.text.trim().isEmpty
-                        ? 'other'
-                        : reasonController.text.trim(),
-                  );
-              await ref.read(transactionsProvider.notifier).refresh();
-              await refreshCustomerStatement(ref, transaction.customerName);
-            },
-            child: const Text('Void'),
-          ),
-        ],
       ),
     );
   }

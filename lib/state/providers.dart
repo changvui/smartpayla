@@ -14,6 +14,7 @@ import '../models/reminder.dart';
 import '../models/transaction.dart';
 import '../models/customer.dart'; 
 import '../services/cloud_sync_service.dart';
+import '../services/credit_score.dart';
 import '../services/reminder_service.dart';
 import '../services/payment_service.dart';
 import '../services/statement_service.dart';
@@ -397,6 +398,21 @@ class SettingsNotifier extends Notifier<AppSettings> {
 final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
   SettingsNotifier.new,
 );
+
+/// Credit score for every customer, derived from the signed-in ledger.
+final creditScoresProvider =
+    Provider<Map<String, CustomerCredit>>((ref) {
+  final transactions =
+      ref.watch(transactionsProvider).valueOrNull ?? const <Transaction>[];
+  final grouped = <String, List<Transaction>>{};
+  for (final txn in transactions) {
+    grouped.putIfAbsent(txn.customerName, () => []).add(txn);
+  }
+  return {
+    for (final entry in grouped.entries)
+      entry.key: CustomerCredit.compute(entry.value),
+  };
+});
 
 final reminderServiceProvider = Provider<ReminderService>((ref) {
   return ReminderService();

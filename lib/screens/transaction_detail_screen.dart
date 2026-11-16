@@ -6,6 +6,7 @@ import '../state/providers.dart';
 import '../theme.dart';
 import '../utils/platform_image.dart';
 import '../widgets/common.dart';
+import '../widgets/credit_card.dart';
 import '../widgets/payment_actions.dart';
 import 'transaction_form_screen.dart';
 
@@ -175,6 +176,8 @@ class TransactionDetailScreen extends ConsumerWidget {
             _BreakdownCard(transaction: t),
             const SizedBox(height: 16),
             _DetailsCard(transaction: t),
+            const SizedBox(height: 16),
+            CustomerCreditCard(customerName: t.customerName),
             const SizedBox(height: 16),
             PaymentHistoryCard(transaction: t),
             

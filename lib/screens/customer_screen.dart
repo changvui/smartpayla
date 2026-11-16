@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/customer.dart';
+import '../services/credit_score.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -125,6 +126,8 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                           itemBuilder: (context, index) =>
                               _CustomerCard(
                             customer: customers[index],
+                            credit: ref
+                                .watch(creditScoresProvider)[customers[index].name],
                             onEdit: () => _showCustomerDialog(
                               context,
                               existing: customers[index],
@@ -259,9 +262,11 @@ class _CustomerCard extends StatelessWidget {
     required this.customer,
     required this.onEdit,
     required this.onDelete,
+    this.credit,
   });
 
   final Customer customer;
+  final CustomerCredit? credit;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -293,24 +298,43 @@ class _CustomerCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  customer.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        customer.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                        ),
+                      ),
+                    ),
+                    if (credit != null && credit!.hasHistory) ...[
+                      const SizedBox(width: 6),
+                      CreditBadge(
+                        band: credit!.band,
+                        score: credit!.score,
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 3),
                 Row(
                   children: [
                     Icon(Icons.phone_rounded, size: 12, color: mutedColor),
                     const SizedBox(width: 4),
-                    Text(
-                      customer.phone,
-                      style: TextStyle(fontSize: 11.5, color: mutedColor),
+                    Expanded(
+                      child: Text(
+                        credit != null && credit!.hasHistory
+                            ? '${customer.phone} · ${credit!.label}'
+                            : customer.phone,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11.5, color: mutedColor),
+                      ),
                     ),
                   ],
                 ),

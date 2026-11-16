@@ -314,27 +314,9 @@ class UserAvatar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(authStateProvider).valueOrNull;
-    final photoUrl = user?.photoURL;
-
-    if (photoUrl != null && photoUrl.isNotEmpty) {
-      // Google throttles the profile photo endpoint (HTTP 429), so a failed
-      // load must fall back to the initials instead of throwing into the zone.
-      return ClipOval(
-        child: Image.network(
-          photoUrl,
-          width: radius * 2,
-          height: radius * 2,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => _initialsAvatar(
-            context,
-            ref,
-            radius,
-          ),
-        ),
-      );
-    }
-
+    // The Google profile photo endpoint answers 429 after a handful of page
+    // loads, which floods the console with failed image requests. The initials
+    // avatar looks the same on every platform and never fails.
     return _initialsAvatar(context, ref, radius);
   }
 

@@ -23,7 +23,12 @@ service cloud.firestore {
     // list query can only be authorised when the constraint it filters on is
     // visible to the rules engine, and `docId.split()` is not.
     match /statementIndex/{docId} {
-      allow read: if request.auth != null
+      // A single-document read may target a document that does not exist yet,
+      // where `resource` is null and field access would fail; the id prefix is
+      // enough to prove ownership there. A list query still needs the field.
+      allow get: if request.auth != null
+                 && docId.split('__')[0] == request.auth.uid;
+      allow list: if request.auth != null
                   && request.auth.uid == resource.data.ownerUid;
       allow create, update: if request.auth != null
                             && request.auth.uid == request.resource.data.ownerUid;

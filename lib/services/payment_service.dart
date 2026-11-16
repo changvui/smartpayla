@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/firebase_config.dart';
@@ -17,6 +18,13 @@ class PaymentService {
 
   final FirebaseFirestore _db;
 
+  /// Firestore rules compare the path uid with `request.auth.uid`, so writes must
+  /// use the live session uid rather than a cached fallback.
+  String _owner(String fallback) {
+    final live = FirebaseAuth.instance.currentUser?.uid;
+    return (live == null || live.isEmpty) ? fallback : live;
+  }
+
   CollectionReference<Map<String, dynamic>> _payments(String ownerUid) =>
       _db.collection('users').doc(ownerUid).collection('payments');
 
@@ -25,6 +33,7 @@ class PaymentService {
 
   Future<List<Payment>> forTransaction(String ownerUid, String txnId) async {
     if (!FirebaseRuntime.initialized) return [];
+    ownerUid = _owner(ownerUid);
     final snapshot = await _payments(
       ownerUid,
     ).where('transactionId', isEqualTo: txnId).get();
@@ -47,6 +56,7 @@ class PaymentService {
   }) async {
     if (!FirebaseRuntime.initialized) return null;
     if (amount <= 0) return null;
+    ownerUid = _owner(ownerUid);
 
     final existing = await forTransaction(ownerUid, transaction.id);
 
@@ -125,6 +135,7 @@ class PaymentService {
     String? reference,
   }) async {
     if (amount <= 0) return false;
+    ownerUid = _owner(ownerUid);
     final open = transactions
         .where((t) => t.customerName == customerName && t.balanceDue > 0.005)
         .toList();
@@ -155,6 +166,7 @@ class PaymentService {
     required String reason,
   }) async {
     if (!FirebaseRuntime.initialized) return;
+    ownerUid = _owner(ownerUid);
     final now = DateTime.now();
     await _payments(ownerUid).doc(payment.id).update({
       'state': PaymentState.voided.name,
@@ -172,6 +184,7 @@ class PaymentService {
     if (!FirebaseRuntime.initialized) {
       return Stream.value(const []);
     }
+    ownerUid = _owner(ownerUid);
     return _db
         .collection('paymentClaims')
         .where('ownerUid', isEqualTo: ownerUid)

@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:uuid/uuid.dart';
 
 import '../data/firebase_config.dart';
@@ -54,6 +55,12 @@ class StatementService {
   }) async {
     if (!FirebaseRuntime.initialized) return null;
 
+    // The rule compares this field with request.auth.uid, so it must be the
+    // live session, not a cached fallback value.
+    final liveUid = FirebaseAuth.instance.currentUser?.uid;
+    if (liveUid == null || liveUid.isEmpty) return null;
+    ownerUid = liveUid;
+
     final bills = <Map<String, dynamic>>[];
     var totalBalance = 0.0;
     var evidenceBudget = 2; // keep the snapshot well under the 1 MiB limit
@@ -90,14 +97,26 @@ class StatementService {
     // already exists for this customer.
     String token;
     String reconCode;
-    final existing = await _indexDoc(ownerUid, customerName).get();
-    final existingToken = existing.data()?['token']?.toString();
+    // A read of a document that does not exist yet can be rejected by the
+    // rules engine (resource is null), so a failure here simply means "no
+    // previous link for this customer".
+    Map<String, dynamic>? existingData;
+    try {
+      existingData = (await _indexDoc(ownerUid, customerName).get()).data();
+    } catch (_) {
+      existingData = null;
+    }
+    final existingToken = existingData?['token']?.toString();
     if (existingToken != null && existingToken.isNotEmpty) {
       token = existingToken;
-      final previous = await _statementDoc(token).get();
-      reconCode =
-          previous.data()?['reconCode']?.toString() ??
-          PaymentLedger.newReconCode();
+      String? previousCode;
+      try {
+        previousCode =
+            (await _statementDoc(token).get()).data()?['reconCode']?.toString();
+      } catch (_) {
+        previousCode = null;
+      }
+      reconCode = previousCode ?? PaymentLedger.newReconCode();
     } else {
       token = _randomToken();
       reconCode = PaymentLedger.newReconCode();
@@ -171,11 +190,13 @@ class StatementService {
     List<String>? billLabels,
   }) async {
     if (!FirebaseRuntime.initialized) return;
+    final liveUid = FirebaseAuth.instance.currentUser?.uid;
+    if (liveUid == null || liveUid.isEmpty) return;
     final id = const Uuid().v4();
     await _db.collection('paymentClaims').doc(id).set({
       'id': id,
       'token': token,
-      'ownerUid': ownerUid,
+      'ownerUid': liveUid,
       'customerName': customerName,
       'amount': amount,
       'note': note,

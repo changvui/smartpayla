@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -94,10 +95,17 @@ Future<void> collectStatement(
     await _collectStatement(context, ref, transaction);
   } catch (error) {
     if (!context.mounted) return;
+    final raw = error.toString();
+    final message = raw.contains('permission-denied')
+        ? 'Firestore rejected the write. Publish the rules from '
+              'firestore.rules (Firestore → Rules) and make sure you are '
+              'signed in.'
+        : 'Could not create the payment link: $raw';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Could not create the payment link: $error'),
+        content: Text(message),
         backgroundColor: AppColors.red,
+        duration: const Duration(seconds: 8),
       ),
     );
   }
@@ -108,6 +116,22 @@ Future<void> _collectStatement(
   WidgetRef ref,
   Transaction transaction,
 ) async {
+  // The statement is written to a public collection that only an authenticated
+  // owner may create; without a session Firestore rejects it, so say why instead
+  // of showing a permission error.
+  if (FirebaseAuth.instance.currentUser == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Sign in first — the payment link is stored under your account.',
+        ),
+        backgroundColor: AppColors.orange,
+        duration: Duration(seconds: 6),
+      ),
+    );
+    return;
+  }
+
   final transactions = ref.read(transactionsProvider).valueOrNull ?? const [];
   final open = transactions
       .where(

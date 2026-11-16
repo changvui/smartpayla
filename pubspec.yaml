@@ -28,6 +28,9 @@ dependencies:
   # clearing (native only; the web build inlines them as base64 instead).
   path_provider: ^2.1.0
 
+  # Used by the customer statement to save the QR image in the browser.
+  web: ^1.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

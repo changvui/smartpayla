@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,8 +27,14 @@ Future<void> main() async {
           .timeout(const Duration(seconds: 15));
       FirebaseRuntime.initialized = true;
       try {
-        FirebaseFirestore.instance.settings =
-            const Settings(persistenceEnabled: true);
+        // On the web, IndexedDB persistence can only be owned by one tab. With
+        // several tabs open (agent + customer statement) Firestore throws
+        // "Failed to obtain exclusive access to the persistence layer" and falls
+        // back to memory anyway. The ledger has its own SharedPreferences cache,
+        // so web persistence is switched off to keep the console clean.
+        FirebaseFirestore.instance.settings = Settings(
+          persistenceEnabled: !kIsWeb,
+        );
       } catch (_) {
         // Some web runtimes do not expose persistence settings.
       }

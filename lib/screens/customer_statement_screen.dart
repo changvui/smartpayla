@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/statement_service.dart';
 import '../widgets/payment_actions.dart';
+import 'qr_fullscreen_screen.dart';
 
 /// Public, read-only page a customer opens from a WhatsApp link.
 ///
@@ -737,8 +738,19 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                         final side = constraints.maxWidth > 420
                             ? 420.0
                             : constraints.maxWidth;
+                        final selectedBill = bills
+                            .where(
+                              (b) => _selected.contains(
+                                (b['id'] ?? '').toString(),
+                              ),
+                            )
+                            .firstOrNull;
                         return InkWell(
-                          onTap: () => _showFullScreenQr(qr),
+                          onTap: () => _showFullScreenQr(
+                            qr,
+                            amount: _payAmount(totalBalance),
+                            reference: (selectedBill?['billNo'] ?? '').toString(),
+                          ),
                           child: Stack(
                             alignment: Alignment.bottomRight,
                             children: [
@@ -1088,44 +1100,15 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// Shown when the customer returns from their banking app. It does not claim
   /// the money arrived — it cannot know that — it simply removes the friction of
   /// finding the declaration button again.
-  /// Full-bleed QR so a customer can hold the phone up to a scanner, or pinch
-  /// to zoom when the screenshot has wide margins.
-  void _showFullScreenQr(String qr) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.white,
-        insetPadding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 6, 0),
-              child: Row(
-                children: [
-                  _duitnowBadge(),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Scan to pay',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: InteractiveViewer(
-                maxScale: 5,
-                child: Image.memory(_decode(qr), fit: BoxFit.contain),
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
+  /// Opens the QR on a page of its own: full width, pinch to zoom, and a save
+  /// action for the customer who wants to scan later.
+  void _showFullScreenQr(String qr, {double? amount, String? reference}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QrFullScreenScreen(
+          dataUri: qr,
+          amountLabel: amount == null ? null : _money(amount),
+          reference: reference,
         ),
       ),
     );

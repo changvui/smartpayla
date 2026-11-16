@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../services/statement_service.dart';
+import '../utils/whatsapp.dart';
 import '../widgets/payment_actions.dart';
 import 'qr_fullscreen_screen.dart';
 
@@ -1371,11 +1371,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// documented deep link that carries an amount, so the amount and reference
   /// are copied first: the customer pastes them once the app is open.
   Future<void> _contact(String phone) async {
-    final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('https://wa.me/$digits');
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-      _toast('Could not open WhatsApp');
-    }
+    final opened = await openWhatsApp(
+      'Hi, I am looking at my statement.',
+      phone: phone,
+    );
+    if (!opened) _toast('Could not open WhatsApp');
   }
 
   Future<void> _reload() async {

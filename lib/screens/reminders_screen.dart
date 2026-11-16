@@ -3,13 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
-import 'package:url_launcher/url_launcher.dart'; // 👈 Added for WhatsApp
 
 import '../models/reminder.dart';
 import '../models/transaction.dart';
 import '../services/reminder_service.dart';
 import '../state/providers.dart';
 import '../theme.dart';
+import '../utils/whatsapp.dart';
 import '../widgets/common.dart';
 
 class RemindersScreen extends ConsumerStatefulWidget {
@@ -371,18 +371,18 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
 
   // 👇 ADDED WHATSAPP SHARE FUNCTION (FR-08)
   Future<void> _share(String text) async {
-    final encodedText = Uri.encodeComponent(text);
-    final whatsappUrl = Uri.parse('whatsapp://send?text=$encodedText');
-    
     try {
-      if (await canLaunchUrl(whatsappUrl)) {
-        await launchUrl(whatsappUrl);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('WhatsApp is not installed on this device.')),
-          );
-        }
+      final opened = await openWhatsApp(text);
+      if (!opened && mounted) {
+        // Never claim the app is missing: the message is copied instead so the
+        // agent can paste it anywhere.
+        await Clipboard.setData(ClipboardData(text: text));
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open WhatsApp — reminder copied instead.'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {

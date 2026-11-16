@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../models/payment.dart';
 import '../models/transaction.dart';
 import '../state/providers.dart';
 import '../theme.dart';
+import '../utils/whatsapp.dart';
 import 'common.dart';
 
 String _money(double value) => 'RM ${NumberFormat('#,##0.00').format(value)}';
@@ -90,6 +90,24 @@ Future<void> collectStatement(
   WidgetRef ref,
   Transaction transaction,
 ) async {
+  try {
+    await _collectStatement(context, ref, transaction);
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Could not create the payment link: $error'),
+        backgroundColor: AppColors.red,
+      ),
+    );
+  }
+}
+
+Future<void> _collectStatement(
+  BuildContext context,
+  WidgetRef ref,
+  Transaction transaction,
+) async {
   final transactions = ref.read(transactionsProvider).valueOrNull ?? const [];
   final open = transactions
       .where(
@@ -138,7 +156,13 @@ Future<void> collectStatement(
   }
 
   final link = statements.linkFor(token);
-  await Clipboard.setData(ClipboardData(text: link));
+  // Browsers only allow a clipboard write inside a user gesture; the awaits
+  // above lose it, so a failure here must not abort the share sheet.
+  try {
+    await Clipboard.setData(ClipboardData(text: link));
+  } catch (_) {
+    // The sheet below shows the link, so the agent can still copy it by hand.
+  }
   if (!context.mounted) return;
 
   await showModalBottomSheet<void>(
@@ -190,14 +214,20 @@ Future<void> collectStatement(
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: () async {
-                      final text = Uri.encodeComponent(
+                      final opened = await openWhatsApp(
                         'Hi ${transaction.customerName}, here is your statement '
                         'from ${settings.shopName}: $link',
                       );
-                      await launchUrl(
-                        Uri.parse('https://wa.me/?text=$text'),
-                        mode: LaunchMode.externalApplication,
-                      );
+                      if (!opened && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not open WhatsApp — the link is already '
+                              'on your clipboard.',
+                            ),
+                          ),
+                        );
+                      }
                     },
                     icon: const Icon(Icons.chat_rounded, size: 18),
                     label: const Text('WhatsApp'),

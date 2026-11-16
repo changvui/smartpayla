@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/transaction.dart';
@@ -504,9 +505,33 @@ class _AgingCard extends StatelessWidget {
       (AgingBucket.days60plus, AppColors.red),
     ];
 
+    final hasBalance = total > 0;
     return AppCard(
       child: Column(
         children: [
+          if (hasBalance) ...[
+            SizedBox(
+              height: 190,
+              child: _AgingDonut(
+                aging: aging,
+                total: total,
+                entries: entries,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_percent(aging[AgingBucket.days60plus] ?? 0, total)} of the '
+              'outstanding amount is more than 60 days old',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Divider(color: Theme.of(context).dividerColor),
+            const SizedBox(height: 16),
+          ],
           for (var i = 0; i < entries.length; i++) ...[
             _AgingRow(
               label: entries[i].$1.label,
@@ -531,6 +556,83 @@ class _AgingCard extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+String _percent(double value, double total) {
+  if (total <= 0) return '0%';
+  return '${(value / total * 100).round()}%';
+}
+
+/// Debt aging distribution as a donut. Total outstanding sits in the middle so
+/// the chart answers "how much, and how old" in one glance.
+class _AgingDonut extends StatelessWidget {
+  const _AgingDonut({
+    required this.aging,
+    required this.total,
+    required this.entries,
+  });
+
+  final Map<AgingBucket, double> aging;
+  final double total;
+  final List<(AgingBucket, Color)> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = Theme.of(context).colorScheme.onSurface;
+    final mutedColor = Theme.of(context).colorScheme.onSurfaceVariant;
+
+    final sections = <PieChartSectionData>[];
+    for (final entry in entries) {
+      final amount = aging[entry.$1] ?? 0;
+      if (amount <= 0) continue;
+      sections.add(
+        PieChartSectionData(
+          value: amount,
+          color: entry.$2,
+          radius: 16,
+          showTitle: false,
+        ),
+      );
+    }
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        PieChart(
+          PieChartData(
+            sections: sections,
+            sectionsSpace: 2,
+            centerSpaceRadius: 56,
+            startDegreeOffset: -90,
+            pieTouchData: PieTouchData(enabled: false),
+          ),
+        ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'TOTAL',
+              style: TextStyle(
+                fontSize: 9.5,
+                letterSpacing: 1.2,
+                fontWeight: FontWeight.w700,
+                color: mutedColor,
+              ),
+            ),
+            Text(
+              money(total),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+                height: 1.15,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

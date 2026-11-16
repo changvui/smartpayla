@@ -1413,7 +1413,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
               Navigator.of(dialogContext).pop();
               setState(() => _sending = true);
               try {
-              await _service.declarePayment(
+              final sent = await _service.declarePayment(
                 token: widget.token,
                 ownerUid: (data['ownerUid'] ?? '').toString(),
                 customerName: (data['customerName'] ?? '').toString(),
@@ -1434,6 +1434,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     })
                     .toList(),
               );
+              if (!sent) {
+                throw StateError(
+                  'The agent link is missing its owner. Ask for a new link.',
+                );
+              }
               } catch (error) {
                 final raw = error.toString();
                 final tooLarge = raw.contains('invalid-argument') ||
@@ -1445,7 +1450,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 // the image: the claim still reaches the agent.
                 if (tooLarge && proof != null) {
                   try {
-                    await _service.declarePayment(
+                    final retried = await _service.declarePayment(
                       token: widget.token,
                       ownerUid: (data['ownerUid'] ?? '').toString(),
                       customerName: (data['customerName'] ?? '').toString(),
@@ -1455,6 +1460,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                       billIds: _selected.toList(),
                       billLabels: const <String>[],
                     );
+                    if (!retried) {
+                      throw StateError('Claim was not stored');
+                    }
                     if (!mounted) return;
                     setState(() {
                       _sending = false;

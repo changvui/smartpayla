@@ -178,7 +178,7 @@ class StatementService {
 
   /// The customer declares that the money has been sent. This never touches the
   /// balance: the agent confirms it first.
-  Future<void> declarePayment({
+  Future<bool> declarePayment({
     required String token,
     required String ownerUid,
     required String customerName,
@@ -189,14 +189,16 @@ class StatementService {
     List<String>? billIds,
     List<String>? billLabels,
   }) async {
-    if (!FirebaseRuntime.initialized) return;
-    final liveUid = FirebaseAuth.instance.currentUser?.uid;
-    if (liveUid == null || liveUid.isEmpty) return;
+    if (!FirebaseRuntime.initialized) return false;
+    // The customer is anonymous, so the claim is owned by the agent named in the
+    // statement snapshot, not by a session. Using the session uid here silently
+    // dropped every claim made from a phone that was not signed in.
+    if (ownerUid.isEmpty) return false;
     final id = const Uuid().v4();
     await _db.collection('paymentClaims').doc(id).set({
       'id': id,
       'token': token,
-      'ownerUid': liveUid,
+      'ownerUid': ownerUid,
       'customerName': customerName,
       'amount': amount,
       'note': note,
@@ -208,6 +210,7 @@ class StatementService {
       'status': 'pending',
       'declaredAt': DateTime.now().toIso8601String(),
     });
+    return true;
   }
 
   /// Finds which customer a reference code belongs to.

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/payment.dart';
 import '../models/reminder.dart';
 import '../models/transaction.dart';
 import '../services/reminder_service.dart';
@@ -339,10 +340,13 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
       _generating = true;
       _result = null;
     });
-    final result = await ref.read(reminderServiceProvider).generate(
+    final generated = await ref.read(reminderServiceProvider).generate(
           transaction: transaction,
           tone: _tone,
         );
+    // The reminder is useless if the customer has to ask where to pay, so the
+    // statement link is appended before the message is shown, copied or shared.
+    final result = await _withPaymentLink(generated, transaction);
     if (!mounted) return;
     setState(() {
       _generating = false;
@@ -359,6 +363,52 @@ class _RemindersScreenState extends ConsumerState<RemindersScreen> {
             usedFallback: result.usedFallback,
           ),
         );
+  }
+
+  /// Appends "Pay here: <link>" to a generated reminder. The link is created (or
+  /// refreshed) for this customer at the same time, so the amount shown on the
+  /// page matches the message.
+  Future<ReminderResult> _withPaymentLink(
+    ReminderResult result,
+    Transaction transaction,
+  ) async {
+    try {
+      final statements = ref.read(statementServiceProvider);
+      final payments = ref.read(paymentServiceProvider);
+      final owner = ref.read(dataOwnerProvider);
+      final settings = ref.read(settingsProvider);
+      final all = ref.read(transactionsProvider).valueOrNull ??
+          const <Transaction>[];
+      final open = all
+          .where(
+            (t) => t.customerName == transaction.customerName && t.isOpen,
+          )
+          .toList();
+      if (open.isEmpty) return result;
+
+      final byTransaction = <String, List<Payment>>{};
+      for (final bill in open) {
+        byTransaction[bill.id] = await payments.forTransaction(owner, bill.id);
+      }
+      final token = await statements.publish(
+        ownerUid: owner,
+        customerName: transaction.customerName,
+        openBills: open,
+        paymentsByTransaction: byTransaction,
+        settings: settings,
+        agentPhone: '',
+      );
+      if (token == null) return result;
+      return ReminderResult(
+        text: '${result.text}\n\nPay here: ${statements.linkFor(token)}',
+        tone: result.tone,
+        usedFallback: result.usedFallback,
+        error: result.error,
+      );
+    } catch (_) {
+      // No link is better than a broken reminder: keep the generated text.
+      return result;
+    }
   }
 
   Future<void> _copy(String text) async {

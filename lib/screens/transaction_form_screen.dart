@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -10,7 +10,6 @@ import 'package:uuid/uuid.dart';
 import '../models/customer.dart';
 import '../models/payment.dart';
 import '../models/transaction.dart';
-import '../services/receipt_store.dart';
 import '../services/scanned_bill.dart';
 import '../state/providers.dart';
 import '../theme.dart';
@@ -302,21 +301,26 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   /// die with the tab, and a raw cache path can be purged by the OS.
   Future<void> _attachBill(ImageSource source) async {
     try {
+      // The photo is stored inside the transaction document as a compressed
+      // data URI, so the bill follows the account to another device. 900 px at
+      // quality 60 is still readable for a handwritten bill and keeps the record
+      // around 80-150 KB, well inside Firestore's 1 MiB document limit.
       final picked = await ImagePicker().pickImage(
         source: source,
-        imageQuality: kIsWeb ? 55 : 70,
-        maxWidth: kIsWeb ? 1000 : 1400,
+        imageQuality: 60,
+        maxWidth: 900,
       );
       if (picked == null) return;
 
       if (!mounted) return;
       setState(() => _uploadingBill = true);
 
-      final stored = await const ReceiptStore().store(picked);
+      final bytes = await picked.readAsBytes();
+      final dataUri = 'data:image/jpeg;base64,${base64Encode(bytes)}';
 
       if (!mounted) return;
       setState(() {
-        _receiptPath = stored;
+        _receiptPath = dataUri;
         _uploadingBill = false;
       });
     } catch (error) {

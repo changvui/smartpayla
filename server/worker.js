@@ -32,6 +32,14 @@ const MAX_REQUESTS_PER_HOUR = 30;
 const MAX_SCAN_BASE64 = 2_000_000; // ~1.5 MB image
 const MAX_SCANS_PER_HOUR = 20;
 
+// Generic chat (partner module) — one prompt in, one reply out.
+const MAX_CHAT_PROMPT = 4_000;
+const MAX_CHATS_PER_HOUR = 40;
+const DEFAULT_CHAT_SYSTEM =
+  "You are a concise assistant inside a small-business bookkeeping app for " +
+  "Malaysian sales agents. Answer in the language the user writes in. Be " +
+  "practical and short: at most 120 words unless the user asks for more.";
+
 const ALLOWED_ORIGINS = new Set([
   "https://changvui.github.io",
   "http://localhost:8080",
@@ -166,6 +174,78 @@ async function handleReminder(request, env, origin) {
     );
   } catch {
     return json({ error: "AI service unavailable" }, 502, origin);
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// /chat — general prompt for the partner module
+// ---------------------------------------------------------------------------
+
+async function handleChat(request, env, origin) {
+  const key = String(env.DEEPSEEK_API_KEY ?? "").trim();
+  if (!key) {
+    return json({ error: "AI is not configured" }, 503, origin);
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (await rateLimited(env, ip, "chat", MAX_CHATS_PER_HOUR)) {
+    return json({ error: "Too many requests. Try again later." }, 429, origin);
+  }
+
+  let data;
+  try {
+    data = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400, origin);
+  }
+
+  const prompt = clean(data.prompt, MAX_CHAT_PROMPT);
+  if (!prompt) {
+    return json({ error: "prompt is required" }, 400, origin);
+  }
+  const system = clean(data.system, 2_000) || DEFAULT_CHAT_SYSTEM;
+
+  try {
+    const response = await fetchWithTimeout(
+      DEEPSEEK_URL,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          temperature: 0.6,
+          max_tokens: 600,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: prompt },
+          ],
+        }),
+      },
+      25_000,
+    );
+
+    if (!response.ok) {
+      return json({ error: `DeepSeek error ${response.status}` }, 502, origin);
+    }
+
+    const result = await response.json();
+    const text = result?.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) {
+      return json({ error: "Empty AI response" }, 502, origin);
+    }
+
+    return json({ text: text.trim().replace(/^"|"$/g, "") }, 200, origin);
+  } catch (error) {
+    const timedOut = String(error).toLowerCase().includes("timeout");
+    return json(
+      { error: timedOut ? "AI timed out" : "AI service unavailable" },
+      504,
+      origin,
+    );
   }
 }
 
@@ -566,7 +646,9 @@ export default {
     // The allow-list only protects browsers, which always send Origin. Native
     // Android/iOS builds send no Origin at all, so an empty value must be
     // accepted or every call from the app would be rejected with 403.
-    const allowed = origin === "" || ALLOWED_ORIGINS.has(origin);
+    // Any localhost port is accepted so a partner can run the app locally.
+    const isLocalDev = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const allowed = origin === "" || ALLOWED_ORIGINS.has(origin) || isLocalDev;
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
 
     // Browser-friendly, no Origin header, GET is fine.
@@ -575,6 +657,7 @@ export default {
     }
 
     const isScan = path.endsWith("/scan");
+    const isChat = path.endsWith("/chat");
     const maxLength = isScan ? MAX_SCAN_BASE64 + 100_000 : MAX_BODY_BYTES;
 
     if (request.method === "OPTIONS") {
@@ -592,8 +675,8 @@ export default {
       return json({ error: "Request too large" }, 413, origin);
     }
 
-    return isScan
-      ? handleScan(request, env, origin)
-      : handleReminder(request, env, origin);
+    if (isScan) return handleScan(request, env, origin);
+    if (isChat) return handleChat(request, env, origin);
+    return handleReminder(request, env, origin);
   },
 };

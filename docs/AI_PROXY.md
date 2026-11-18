@@ -202,3 +202,37 @@ misread bill can always be corrected.
 (§2.2.5). This implementation uses a server-side vision model instead — update
 that paragraph, or switch to `google_mlkit_text_recognition` if the report must
 stay as written (ML Kit is on-device, Android/iOS only, and has no web support).
+
+## 9. `/chat` — general prompt (partner module)
+
+A generic text endpoint so the partner's own AI feature (for example a summary
+card on the home screen) can reuse the same Worker and the same DeepSeek key.
+
+Request:
+
+```json
+POST /chat
+{ "prompt": "Summarise this week's outstanding debts in one sentence.",
+  "system": "optional extra instruction" }
+```
+
+Response:
+
+```json
+{ "text": "You have RM 1,279 outstanding across 2 customers." }
+```
+
+Rules applied by the Worker:
+
+| Rule | Value |
+|---|---|
+| `prompt` | required, trimmed, maximum 4,000 characters |
+| `system` | optional, maximum 2,000 characters |
+| Rate limit | 40 requests per hour per IP (`RATE_LIMIT` KV) |
+| Timeout | 25 seconds, then `504 AI timed out` |
+| Key | `DEEPSEEK_API_KEY` stays in the Worker; clients never see it |
+
+Errors: `400` invalid JSON or missing prompt, `429` rate limited,
+`502` upstream error, `503` key not configured, `504` timeout.
+
+The endpoint is additive: `/reminder`, `/scan` and `/scan/agree` are unchanged.

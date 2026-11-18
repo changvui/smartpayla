@@ -32,6 +32,16 @@ const MAX_REQUESTS_PER_HOUR = 30;
 const MAX_SCAN_BASE64 = 2_000_000; // ~1.5 MB image
 const MAX_SCANS_PER_HOUR = 20;
 
+// Gemini vision — free tier, strong on handwriting. The model name is
+// configurable because Google retires model ids; the list is tried in order and
+// a 404 moves on to the next one instead of failing the scan.
+const GEMINI_MODEL_DEFAULT = "gemini-2.5-flash";
+const GEMINI_MODEL_FALLBACKS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-flash-lite-latest",
+];
+
 // Generic chat (partner module) — one prompt in, one reply out.
 const MAX_CHAT_PROMPT = 4_000;
 const MAX_CHATS_PER_HOUR = 40;
@@ -158,6 +168,11 @@ async function handleReminder(request, env, origin) {
     });
 
     if (!response.ok) {
+      // 402 means the prepaid balance is exhausted; make that readable so the
+      // client can say "quota" instead of surfacing a raw 402.
+      if (response.status === 402) {
+        return json({ error: "AI quota exhausted" }, 503, origin);
+      }
       return json({ error: `DeepSeek error ${response.status}` }, 502, origin);
     }
 
@@ -229,6 +244,11 @@ async function handleChat(request, env, origin) {
     );
 
     if (!response.ok) {
+      // 402 means the prepaid balance is exhausted; make that readable so the
+      // client can say "quota" instead of surfacing a raw 402.
+      if (response.status === 402) {
+        return json({ error: "AI quota exhausted" }, 503, origin);
+      }
       return json({ error: `DeepSeek error ${response.status}` }, 502, origin);
     }
 
@@ -519,16 +539,89 @@ async function scanViaOpenRouter(env, imageBase64, mimeType) {
   return { model, text };
 }
 
+
+// ---------------------------------------------------------------------------
+// Gemini vision
+// ---------------------------------------------------------------------------
+
+async function scanViaGemini(env, imageBase64, mimeType) {
+  const key = String(env.GEMINI_API_KEY ?? "").trim();
+  if (!key) throw new Error("gemini: no key");
+
+  const configured = String(env.GEMINI_MODEL ?? "").trim();
+  const models = configured
+    ? [configured, ...GEMINI_MODEL_FALLBACKS.filter((m) => m !== configured)]
+    : GEMINI_MODEL_FALLBACKS.slice();
+  if (!models.length) models.push(GEMINI_MODEL_DEFAULT);
+
+  let lastError = "gemini: unavailable";
+  for (const model of models) {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}` +
+      `:generateContent?key=${encodeURIComponent(key)}`;
+
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: SCAN_PROMPT },
+                { inline_data: { mime_type: mimeType, data: imageBase64 } },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 800,
+            responseMimeType: "application/json",
+          },
+        }),
+      },
+      30_000,
+    );
+
+    if (response.status === 404) {
+      // Model id retired for this key: try the next one.
+      lastError = `gemini ${model}: not found`;
+      continue;
+    }
+    if (response.status === 429) {
+      throw new Error("gemini: quota exhausted");
+    }
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 140);
+      throw new Error(`gemini ${model}: ${response.status} ${detail}`);
+    }
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map((part) => part?.text ?? "")
+      .join("");
+    if (typeof text !== "string" || !text.trim()) {
+      lastError = `gemini ${model}: empty response`;
+      continue;
+    }
+    return { model, text };
+  }
+
+  throw new Error(lastError);
+}
+
 async function handleScan(request, env, origin) {
+  const hasGemini = Boolean(String(env.GEMINI_API_KEY ?? "").trim());
   const hasOpenRouter = Boolean(String(env.VISION_API_KEY ?? "").trim());
   const hasWorkersAi = Boolean(env.AI) && typeof env.AI.run === "function";
 
-  if (!hasOpenRouter && !hasWorkersAi) {
+  if (!hasGemini && !hasOpenRouter && !hasWorkersAi) {
     return json(
       {
         error:
-          "Scan is not configured: set VISION_API_KEY, or bind Workers AI " +
-          "as `AI`.",
+          "Scan is not configured: set GEMINI_API_KEY (recommended), " +
+          "VISION_API_KEY, or bind Workers AI as `AI`.",
       },
       503,
       origin,
@@ -562,7 +655,19 @@ async function handleScan(request, env, origin) {
 
   const notes = [];
 
-  // 1) Qwen2.5-VL via OpenRouter — accurate on documents and tables.
+  // 1) Gemini Flash — free tier, best handwriting accuracy of the three.
+  if (hasGemini) {
+    try {
+      const { model, text } = await scanViaGemini(env, image, mimeType);
+      const bill = parseBill(text);
+      if (bill) return json({ bill, engine: `gemini (${model})` }, 200, origin);
+      notes.push("gemini: unreadable output");
+    } catch (error) {
+      notes.push(String(error).slice(0, 120));
+    }
+  }
+
+  // 2) Qwen2.5-VL via OpenRouter — accurate on documents and tables.
   if (hasOpenRouter) {
     try {
       const { model, text } = await scanViaOpenRouter(env, image, mimeType);
@@ -574,7 +679,7 @@ async function handleScan(request, env, origin) {
     }
   }
 
-  // 2) Workers AI — no key, always available, weaker on small text.
+  // 3) Workers AI — no key, always available, weaker on small text.
   if (hasWorkersAi) {
     try {
       const imageBytes = Uint8Array.from(atob(image), (ch) => ch.charCodeAt(0));

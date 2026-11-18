@@ -236,3 +236,26 @@ Errors: `400` invalid JSON or missing prompt, `429` rate limited,
 `502` upstream error, `503` key not configured, `504` timeout.
 
 The endpoint is additive: `/reminder`, `/scan` and `/scan/agree` are unchanged.
+
+## 10. Scan engines and the free Gemini tier
+
+`/scan` tries three engines in order and returns the first one that produces a
+parsable bill:
+
+| Order | Engine | Secret | Cost | Notes |
+|---|---|---|---|---|
+| 1 | Gemini Flash | `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`) | free tier | strongest on handwriting |
+| 2 | Qwen2.5-VL via OpenRouter | `VISION_API_KEY` | per token | good on printed bills and tables |
+| 3 | Workers AI (llava / qwen-vl) | none, `AI` binding | free | weakest on small text |
+
+The Gemini model id is configurable because Google retires ids: a `404` moves to
+the next id in `gemini-2.5-flash`, `gemini-2.0-flash`,
+`gemini-flash-lite-latest` instead of failing the scan. A `429` from Gemini
+("quota exhausted") is reported in the engine notes and the next engine is
+tried, so the feature degrades instead of breaking.
+
+Get a key at https://aistudio.google.com/apikey. The free tier has no billing
+requirement, but its daily request limit is shown per project in AI Studio and
+can be small (tens to a few hundred requests per day depending on the model),
+and free-tier inputs may be used by Google to improve their models - both are
+noted in the report as prototype constraints.

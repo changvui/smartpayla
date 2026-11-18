@@ -443,6 +443,71 @@ async function fetchWithTimeout(url, options, timeoutMs = 30000) {
  * Because it is OpenAI-compatible, the same code also drives Groq, Mistral,
  * Together, a self-hosted vLLM, etc. — only the three variables change.
  */
+async function scanViaGemini(env, imageBase64, mimeType) {
+  const key = String(env.GEMINI_API_KEY ?? "").trim();
+  if (!key) throw new Error("gemini: no key");
+
+  const configured = String(env.GEMINI_MODEL ?? "").trim();
+  const models = configured
+    ? [configured, ...GEMINI_MODEL_FALLBACKS.filter((m) => m !== configured)]
+    : GEMINI_MODEL_FALLBACKS.slice();
+
+  let lastError = "gemini: unavailable";
+  for (const model of models) {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}` +
+      `:generateContent?key=${encodeURIComponent(key)}`;
+
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: SCAN_PROMPT },
+                { inline_data: { mime_type: mimeType, data: imageBase64 } },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0,
+            maxOutputTokens: 800,
+            responseMimeType: "application/json",
+          },
+        }),
+      },
+      30_000,
+    );
+
+    if (response.status === 404) {
+      lastError = `gemini ${model}: not found`;
+      continue;
+    }
+    if (response.status === 429) {
+      throw new Error("gemini: quota exhausted");
+    }
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 140);
+      throw new Error(`gemini ${model}: ${response.status} ${detail}`);
+    }
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map((part) => part?.text ?? "")
+      .join("");
+    if (typeof text !== "string" || !text.trim()) {
+      lastError = `gemini ${model}: empty response`;
+      continue;
+    }
+    return { model, text };
+  }
+
+  throw new Error(lastError);
+}
+
 async function handleScan(request, env, origin) {
   const hasGemini = Boolean(String(env.GEMINI_API_KEY ?? "").trim());
   if (!hasGemini) {

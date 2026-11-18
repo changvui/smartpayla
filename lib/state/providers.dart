@@ -489,8 +489,10 @@ final reminderHistoryProvider =
 /// local cache, applies every change to it immediately, and queues the cloud
 /// write so it can be retried - the same shape the ledger already uses.
 class CustomerNotifier extends AsyncNotifier<List<Customer>> {
-  static const _cacheKey = 'customers_cache_v1';
-  static const _pendingKey = 'customers_pending_v1';
+  // Scoped to the owner: two accounts on one device must not see each other's
+  // customers, and a queued write belongs to the account that made it.
+  String get _cacheKey => 'customers_cache_v2_$_userId';
+  String get _pendingKey => 'customers_pending_v2_$_userId';
 
   SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
 
@@ -504,7 +506,9 @@ class CustomerNotifier extends AsyncNotifier<List<Customer>> {
   }
 
   bool get _cloudEnabled =>
-      FirebaseRuntime.initialized && FirebaseConfig.configured;
+      FirebaseRuntime.initialized &&
+      FirebaseConfig.configured &&
+      (FirebaseAuth.instance.currentUser?.uid.isNotEmpty ?? false);
 
   CollectionReference get _customersRef => FirebaseFirestore.instance
       .collection('users')
@@ -562,6 +566,7 @@ class CustomerNotifier extends AsyncNotifier<List<Customer>> {
   }
 
   Future<void> _enqueue(String op, String id, Map<String, dynamic> data) async {
+    if (!_cloudEnabled) return;
     final pending = _readPending()
       ..add({'op': op, 'id': id, 'data': data, 'at': DateTime.now().toIso8601String()});
     await _writePending(pending);

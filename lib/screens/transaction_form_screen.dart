@@ -119,6 +119,27 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     );
     if (scanned == null || !mounted) return;
 
+    // The scanned lines replace the empty rows, so a bill with three items
+    // arrives as three rows instead of one total the agent has to split.
+    final previousLines = <_LineItem>[];
+    if (scanned.items.isNotEmpty) {
+      previousLines.addAll(_lines);
+      _lines.clear();
+      for (final item in scanned.items) {
+        final qty = item.qty ?? 1;
+        final price = item.linePrice;
+        _lines.add(
+          _LineItem(
+            description: item.description,
+            qty: qty == qty.roundToDouble()
+                ? qty.toInt().toString()
+                : qty.toString(),
+            price: price == null ? '' : price.toStringAsFixed(2),
+          ),
+        );
+      }
+    }
+
     setState(() {
       final party = scanned.partyName;
       if (party != null && _customer.text.trim().isEmpty) {
@@ -138,6 +159,22 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
         _invoiceDate ??= scanned.date;
       }
     });
+
+    if (previousLines.isNotEmpty) {
+      // The old controllers are still attached to the widgets until the frame
+      // above has been laid out; dispose them afterwards.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        for (final line in previousLines) {
+          line.dispose();
+        }
+      });
+      _onLineChanged();
+      // The bill's printed total is authoritative: the line amounts can differ
+      // by a rounding cent, and a discount would never appear as a row.
+      if (scanned.amount != null) {
+        _total.text = scanned.amount!.toStringAsFixed(2);
+      }
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(

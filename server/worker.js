@@ -275,12 +275,12 @@ async function handleChat(request, env, origin) {
 
 const SCAN_PROMPT = `You are reading a photo of a Malaysian cash bill, invoice or receipt.
 
-Reply with JSON only, no markdown, using exactly these keys:
+Reply with JSON only, no markdown, using exactly these keys. For every printed line return one item with its quantity, its unit price and its line amount; if the bill prints only a line amount, set unit_price to "amount" divided by "qty".
 {
   "is_bill": true|false,
   "customer": "the party the bill is issued to, or null",
   "vendor": "the business issuing the bill, or null",
-  "items": [{"description": "printed line", "amount": number}],
+  "items": [{"description": "printed line", "qty": number, "unit_price": number or null, "amount": number}],
   "total": number or null,
   "date": "YYYY-MM-DD" or null,
   "reference": "invoice or cash-bill number, or null",

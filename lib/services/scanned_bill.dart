@@ -13,6 +13,7 @@ class ScannedBill {
     this.date,
     this.reference,
     this.note,
+    this.items = const [],
   });
 
   /// `false` when the picture is not a bill/invoice.
@@ -28,6 +29,9 @@ class ScannedBill {
   final DateTime? date;
   final String? reference;
   final String? note;
+
+  /// The printed lines, in the order they appear on the bill.
+  final List<ScannedItem> items;
 
   /// Best value for the transaction's "Customer name" field.
   String? get partyName => customer ?? vendor;
@@ -59,6 +63,16 @@ class ScannedBill {
       return trimmed;
     }
 
+    final items = <ScannedItem>[];
+    final rawItems = data['items'];
+    if (rawItems is List) {
+      for (final entry in rawItems) {
+        if (entry is! Map) continue;
+        final item = ScannedItem.fromMap(Map<String, dynamic>.from(entry));
+        if (item.description.isNotEmpty) items.add(item);
+      }
+    }
+
     return ScannedBill(
       isBill: true,
       customer: text(data['customer']),
@@ -67,6 +81,48 @@ class ScannedBill {
       date: date,
       reference: text(data['reference']),
       note: text(data['note']),
+      items: items,
+    );
+  }
+}
+
+/// One printed line on the bill.
+class ScannedItem {
+  const ScannedItem({
+    required this.description,
+    this.qty,
+    this.unitPrice,
+    this.amount,
+  });
+
+  final String description;
+  final double? qty;
+  final double? unitPrice;
+  final double? amount;
+
+  /// Price to put in the "Price (RM)" column: the unit price when the bill
+  /// prints one, otherwise the line amount (quantity is then 1).
+  double? get linePrice => unitPrice ?? amount;
+
+  static ScannedItem fromMap(Map<String, dynamic> data) {
+    double? toNumber(Object? value) {
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        return double.tryParse(value.replaceAll(RegExp(r'[^0-9.]'), ''));
+      }
+      return null;
+    }
+
+    final description = (data['description'] ?? '').toString().trim();
+    final qty = toNumber(data['qty']);
+    final unitPrice = toNumber(data['unit_price']);
+    final amount = toNumber(data['amount']) ?? toNumber(data['total']);
+
+    return ScannedItem(
+      description: description,
+      qty: (qty == null || qty <= 0) ? null : qty,
+      unitPrice: unitPrice,
+      amount: amount,
     );
   }
 }

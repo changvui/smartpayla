@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/customer.dart';
 import '../models/payment.dart';
 import '../models/reminder.dart';
 import '../models/transaction.dart';
@@ -581,10 +582,26 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     Navigator.of(context).pop(true);
   }
 
+  /// The customer's phone, when the profile has one, so WhatsApp opens the
+  /// right chat instead of the contact picker.
+  String? get _customerPhone {
+    final profiles = ref.read(customerProvider).valueOrNull ?? const <Customer>[];
+    for (final profile in profiles) {
+      if (normaliseCustomerName(profile.name).toLowerCase() ==
+          widget.item.key) {
+        final phone = profile.phone.trim();
+        if (phone.isNotEmpty && phone.toLowerCase() != 'no phone') {
+          return phone;
+        }
+      }
+    }
+    return null;
+  }
+
   Future<void> _share() async {
     await _record();
     if (!mounted) return;
-    final opened = await openWhatsApp(_draft.text);
+    final opened = await openWhatsApp(_draft.text, phone: _customerPhone);
     if (!mounted) return;
     if (!opened) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/customer.dart';
 import '../state/providers.dart';
 import '../theme.dart';
+import '../utils/whatsapp.dart';
 import '../widgets/common.dart';
 import 'customer_detail_screen.dart';
 
@@ -123,8 +124,7 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                           itemCount: customers.length,
                           separatorBuilder: (_, __) =>
                               const SizedBox(height: 10),
-                          itemBuilder: (context, index) =>
-                              _CustomerCard(
+                          itemBuilder: (context, index) => _CustomerCard(
                             customer: customers[index],
                             onEdit: () => _showCustomerDialog(
                               context,
@@ -155,7 +155,10 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
       await ref.read(customerProvider.notifier).deleteCustomer(customer.id);
     } catch (e) {
       messenger.showSnackBar(
-        SnackBar(content: Text('Delete failed: $e'), backgroundColor: AppColors.red),
+        SnackBar(
+          content: Text('Delete failed: $e'),
+          backgroundColor: AppColors.red,
+        ),
       );
     }
   }
@@ -164,8 +167,16 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
     BuildContext context, {
     Customer? existing,
   }) async {
+    final rawExistingPhone =
+        (existing?.phone == null || existing!.phone == 'No phone')
+            ? ''
+            : existing.phone;
+    final parsedPhone = splitPhoneForDropdown(rawExistingPhone);
+
+    String selectedDialCode = parsedPhone.dialCode;
     final nameController = TextEditingController(text: existing?.name ?? '');
-    final phoneController = TextEditingController(text: existing?.phone ?? '');
+    final phoneController =
+        TextEditingController(text: parsedPhone.localNumber);
     final addressController = TextEditingController(
       text: existing?.address ?? '',
     );
@@ -174,103 +185,155 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(isEdit ? 'Edit customer' : 'Add customer'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(labelText: 'Customer name'),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(isEdit ? 'Edit customer' : 'Add customer'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    textCapitalization: TextCapitalization.words,
+                    decoration:
+                        const InputDecoration(labelText: 'Customer name'),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      SizedBox(
+                        width: 132,
+                        child: DropdownButtonFormField<String>(
+                          initialValue: selectedDialCode,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Code',
+                          ),
+                          items: kCountryDialCodes.map((country) {
+                            return DropdownMenuItem<String>(
+                              value: country['code'],
+                              child: Text(
+                                country['label']!,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => selectedDialCode = val);
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: phoneController,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone number',
+                            hintText: '192836645',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: addressController,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Address (optional)',
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: 'Phone number'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: addressController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  labelText: 'Address (optional)',
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
                 ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final name = nameController.text.trim();
-                if (name.isEmpty) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please enter a customer name.'),
-                      backgroundColor: AppColors.red,
-                    ),
-                  );
-                  return;
-                }
-                final phone = phoneController.text.trim();
-                final address = addressController.text.trim();
-                Navigator.pop(dialogContext);
+                FilledButton(
+                  onPressed: () async {
+                    final name = nameController.text.trim();
+                    if (name.isEmpty) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please enter a customer name.'),
+                          backgroundColor: AppColors.red,
+                        ),
+                      );
+                      return;
+                    }
+                    final formattedPhone = formatPhoneWithCountryCode(
+                      selectedDialCode,
+                      phoneController.text,
+                    );
+                    final address = addressController.text.trim();
+                    Navigator.pop(dialogContext);
 
-                final messenger = ScaffoldMessenger.of(context);
-                final editing = existing;
-                try {
-                  final notifier = ref.read(customerProvider.notifier);
-                  if (editing != null) {
-                    await notifier.updateCustomer(
-                      editing.id,
-                      Customer(
-                        id: editing.id,
-                        name: name,
-                        phone: phone.isEmpty ? 'No phone' : phone,
-                        address: address.isEmpty ? editing.address : address,
-                      ),
-                    );
-                  } else {
-                    await notifier.addCustomer(
-                      Customer(
-                        id: '',
-                        name: name,
-                        phone: phone.isEmpty ? 'No phone' : phone,
-                        address: address.isEmpty ? 'Not set' : address,
-                      ),
-                    );
-                  }
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        editing != null ? 'Customer updated.' : 'Customer saved.',
-                      ),
-                      backgroundColor: AppColors.green,
-                    ),
-                  );
-                } catch (e) {
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text('Failed: $e'),
-                      backgroundColor: AppColors.red,
-                    ),
-                  );
-                }
-              },
-              child: Text(isEdit ? 'Update' : 'Save'),
-            ),
-          ],
+                    final messenger = ScaffoldMessenger.of(context);
+                    final editing = existing;
+                    try {
+                      final notifier = ref.read(customerProvider.notifier);
+                      if (editing != null) {
+                        await notifier.updateCustomer(
+                          editing.id,
+                          Customer(
+                            id: editing.id,
+                            name: name,
+                            phone: formattedPhone.isEmpty
+                                ? 'No phone'
+                                : formattedPhone,
+                            address:
+                                address.isEmpty ? editing.address : address,
+                          ),
+                        );
+                      } else {
+                        await notifier.addCustomer(
+                          Customer(
+                            id: '',
+                            name: name,
+                            phone: formattedPhone.isEmpty
+                                ? 'No phone'
+                                : formattedPhone,
+                            address: address.isEmpty ? 'Not set' : address,
+                          ),
+                        );
+                      }
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            editing != null
+                                ? 'Customer updated.'
+                                : 'Customer saved.',
+                          ),
+                          backgroundColor: AppColors.green,
+                        ),
+                      );
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text('Failed: $e'),
+                          backgroundColor: AppColors.red,
+                        ),
+                      );
+                    }
+                  },
+                  child: Text(isEdit ? 'Update' : 'Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
 
     nameController.dispose();
     phoneController.dispose();
+    addressController.dispose();
   }
 }
 
@@ -299,66 +362,66 @@ class _CustomerCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
       child: AppCard(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-            child: Text(
-              initial,
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w800,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+              child: Text(
+                initial,
+                style: const TextStyle(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  customer.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Row(
-                  children: [
-                    Icon(Icons.phone_rounded, size: 12, color: mutedColor),
-                    const SizedBox(width: 4),
-                    Text(
-                      customer.phone,
-                      style: TextStyle(fontSize: 11.5, color: mutedColor),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    customer.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
                     ),
-                  ],
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Icon(Icons.phone_rounded, size: 12, color: mutedColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        customer.phone,
+                        style: TextStyle(fontSize: 11.5, color: mutedColor),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              icon: Icon(Icons.more_vert, size: 19, color: mutedColor),
+              onSelected: (value) {
+                if (value == 'edit') onEdit();
+                if (value == 'delete') onDelete();
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit')),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Delete', style: TextStyle(color: AppColors.red)),
                 ),
               ],
             ),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            icon: Icon(Icons.more_vert, size: 19, color: mutedColor),
-            onSelected: (value) {
-              if (value == 'edit') onEdit();
-              if (value == 'delete') onDelete();
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'edit', child: Text('Edit')),
-              PopupMenuItem(
-                value: 'delete',
-                child: Text('Delete', style: TextStyle(color: AppColors.red)),
-              ),
-            ],
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }

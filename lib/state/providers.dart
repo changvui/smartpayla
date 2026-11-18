@@ -394,6 +394,16 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 }
 
+/// The month the dashboard reports on. `null` means "all time".
+///
+/// Defaults to the current month: an agent opening the app in the morning wants
+/// this month's collections, not a lifetime total, and the selector is one tap
+/// away when they need a different period.
+final dashboardMonthProvider = StateProvider<DateTime?>((ref) {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month);
+});
+
 final settingsProvider = NotifierProvider<SettingsNotifier, AppSettings>(
   SettingsNotifier.new,
 );

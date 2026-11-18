@@ -1,6 +1,7 @@
 ﻿import 'dart:convert';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -74,7 +75,7 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _HomeContent extends StatelessWidget {
+class _HomeContent extends ConsumerWidget {
   const _HomeContent({
     required this.transactions,
     required this.commissionRate,
@@ -90,9 +91,19 @@ class _HomeContent extends StatelessWidget {
   final VoidCallback? onOpenReminders;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final month = ref.watch(dashboardMonthProvider);
+
+    // Outstanding is a stock: it does not belong to a month, so it always covers
+    // every open bill. Collected and commission are flows, so they follow the
+    // selected period.
     final open = transactions.where((t) => t.isOpen).toList();
-    final paid = transactions.where((t) => t.isPaid).toList();
+    final inPeriod = transactions.where((t) {
+      if (month == null) return true;
+      final bill = t.billDate;
+      return bill.year == month.year && bill.month == month.month;
+    }).toList();
+    final paid = inPeriod.where((t) => t.isPaid).toList();
 
     final outstanding = open.fold<double>(0, (sum, t) => sum + t.balanceDue);
     final collected = paid.fold<double>(0, (sum, t) => sum + t.totalAmount);
@@ -108,7 +119,7 @@ class _HomeContent extends StatelessWidget {
       aging[t.agingBucket] = (aging[t.agingBucket] ?? 0) + t.balanceDue;
     }
 
-    final recent = transactions.take(3).toList();
+    final recent = inPeriod.take(3).toList();
 
     return PageWidth(
       child: RefreshIndicator(
@@ -118,7 +129,12 @@ class _HomeContent extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
           children: [
             const _Greeting(),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
+            _MonthBar(
+              month: month,
+              onTap: () => _pickMonth(context, ref),
+            ),
+            const SizedBox(height: 14),
             _OutstandingCard(
               amount: outstanding,
               openCount: open.length,
@@ -130,7 +146,9 @@ class _HomeContent extends StatelessWidget {
                   child: _StatCard(
                     label: 'Commission earned',
                     value: money(commission),
-                    hint: '${percent(commissionRate)} on paid sales',
+                    hint: month == null
+                        ? '${percent(commissionRate)} on paid sales, all time'
+                        : '${percent(commissionRate)} on ${_monthName(month)} sales',
                     icon: Icons.percent_rounded,
                     accent: AppColors.green,
                     onTap: () => Navigator.of(context).push(
@@ -145,9 +163,12 @@ class _HomeContent extends StatelessWidget {
                   child: _StatCard(
                     label: 'Collected',
                     value: money(collected),
-                    hint: '${paid.length} paid transactions',
+                    hint: month == null
+                        ? '${paid.length} paid transactions, all time'
+                        : '${paid.length} paid in ${_monthName(month)}',
                     icon: Icons.check_circle_outline_rounded,
                     accent: AppColors.blue,
+                    onTap: () => _pickMonth(context, ref),
                   ),
                 ),
               ],
@@ -940,6 +961,192 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
             ),
         ],
       ),
+    );
+  }
+}
+
+
+String _monthName(DateTime month) =>
+    DateFormat.MMMM().format(month);
+
+/// Opens the period picker. `null` inside the result means "all time"; a null
+/// result from the dialog means the agent cancelled.
+Future<void> _pickMonth(BuildContext context, WidgetRef ref) async {
+  final current = ref.read(dashboardMonthProvider);
+  final result = await showDialog<_MonthResult>(
+    context: context,
+    builder: (_) => _MonthPickerDialog(initial: current),
+  );
+  if (result == null) return;
+  ref.read(dashboardMonthProvider.notifier).state = result.month;
+}
+
+class _MonthResult {
+  const _MonthResult(this.month);
+  final DateTime? month;
+}
+
+class _MonthBar extends StatelessWidget {
+  const _MonthBar({required this.month, required this.onTap});
+
+  final DateTime? month;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Row(
+      children: [
+        Text(
+          month == null ? 'All time' : 'Overview',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: muted,
+          ),
+        ),
+        const Spacer(),
+        InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_month_rounded, size: 15),
+                const SizedBox(width: 6),
+                Text(
+                  month == null ? 'All time' : DateFormat('MMMM yyyy').format(month!),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Icon(Icons.expand_more_rounded, size: 16),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MonthPickerDialog extends StatefulWidget {
+  const _MonthPickerDialog({required this.initial});
+
+  final DateTime? initial;
+
+  @override
+  State<_MonthPickerDialog> createState() => _MonthPickerDialogState();
+}
+
+class _MonthPickerDialogState extends State<_MonthPickerDialog> {
+  late int _year;
+  late int _month;
+  bool _allTime = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _year = widget.initial?.year ?? now.year;
+    _month = widget.initial?.month ?? now.month;
+    _allTime = widget.initial == null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return AlertDialog(
+      title: const Text('Report period'),
+      content: SizedBox(
+        width: 320,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                IconButton(
+                  onPressed: () => setState(() {
+                    _year -= 1;
+                    _allTime = false;
+                  }),
+                  icon: const Icon(Icons.chevron_left_rounded),
+                ),
+                Text(
+                  '$_year',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(() {
+                    _year += 1;
+                    _allTime = false;
+                  }),
+                  icon: const Icon(Icons.chevron_right_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (var m = 1; m <= 12; m++)
+                  ChoiceChip(
+                    label: Text(
+                      DateFormat('MMM').format(DateTime(_year, m)),
+                      style: const TextStyle(fontSize: 11.5),
+                    ),
+                    selected: !_allTime && _month == m,
+                    onSelected: (_) => setState(() {
+                      _month = m;
+                      _allTime = false;
+                    }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _allTime = true),
+                icon: Icon(
+                  _allTime
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 17,
+                ),
+                label: Text(
+                  'All time',
+                  style: TextStyle(fontSize: 12.5, color: muted),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(
+            _MonthResult(_allTime ? null : DateTime(_year, _month)),
+          ),
+          child: const Text('Apply'),
+        ),
+      ],
     );
   }
 }

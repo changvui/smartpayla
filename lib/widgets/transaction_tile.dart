@@ -26,6 +26,11 @@ class TransactionTile extends StatelessWidget {
       final days = transaction.daysOverdue;
       return '$days ${days == 1 ? 'day' : 'days'} overdue';
     }
+    if (transaction.daysUntilDue == 0) return 'Due today';
+    if (transaction.daysUntilDue <= 7) {
+      final days = transaction.daysUntilDue;
+      return 'Due in $days ${days == 1 ? 'day' : 'days'}';
+    }
     return 'Due ${shortDate(transaction.dueDate)}';
   }
 
@@ -39,7 +44,9 @@ class TransactionTile extends StatelessWidget {
         ? AppColors.red
         : transaction.isPaid
             ? AppColors.green
-            : mutedColor; 
+            : transaction.daysUntilDue <= 7
+                ? AppColors.amber
+                : mutedColor;
 
     return AppCard(
       padding: EdgeInsets.all(compact ? 12 : 14),

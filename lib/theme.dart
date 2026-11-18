@@ -12,8 +12,15 @@ class AppColors {
   static const amber = Color(0xFFB26A00);
   static const red = Color(0xFFB3261E);
   static const blue = Color(0xFF2B5F9E);
-  // Status palette: orange = nothing paid yet, blue = partially paid,
-  // green = settled, red = overdue.
+  // Status palette, ordered by urgency so that colour carries meaning:
+  //   green  settled        - nothing to do
+  //   blue   partial        - some money received
+  //   slate  unpaid         - on time, informational, deliberately calm
+  //   amber  due soon       - action needed within a week
+  //   red    overdue        - the only alarm colour
+  // Orange was removed: at pill size it was indistinguishable from red, so
+  // "on time" looked like "late" - the one distinction the badge exists for.
+  static const slate = Color(0xFF475569);
   static const orange = Color(0xFFC2410C);
 }
 

@@ -103,9 +103,23 @@ class Transaction {
 
   DateTime get billDate => cashBillDate ?? invoiceDate ?? createdAt;
 
+  /// Days until the due date; negative once overdue.
+  int get daysUntilDue {
+    final today = DateTime.now();
+    final diff = DateTime(dueDate.year, dueDate.month, dueDate.day)
+        .difference(DateTime(today.year, today.month, today.day))
+        .inDays;
+    return diff;
+  }
+
+  /// The badge label. Ordering matters: settled beats late, late beats
+  /// partially paid, and a bill due within a week is called out separately so
+  /// the agent acts before it becomes overdue.
   String get displayStatus {
     if (isPaid) return 'Paid';
     if (isOverdue) return 'Overdue';
+    if (status == PaymentStatus.partial) return status.label;
+    if (daysUntilDue <= 7) return 'Due soon';
     return status.label;
   }
 

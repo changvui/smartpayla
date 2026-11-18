@@ -39,7 +39,11 @@ Color statusColor(String label) {
     case 'Partial':
       return AppColors.blue;           // in progress, some money received
     case 'Unpaid':
-      return AppColors.orange;         // nothing received yet, still on time
+      // Neutral on purpose: on time is not a problem, and a warm colour here
+      // reads as a warning next to the red overdue pill.
+      return AppColors.slate;
+    case 'Due soon':
+      return AppColors.amber;          // due within a week — act now
     case 'Overdue':
       return AppColors.red;            // late — the only alarm colour
     // Sync state: green/teal when the cloud copy is up to date, red whenever
@@ -144,11 +148,40 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
+/// Shape as well as colour: each status carries an icon so the badge remains
+/// readable for a colour-blind user, where a green and a red pill can look
+/// identical.
+IconData statusIcon(String label) {
+  switch (label) {
+    case 'Paid':
+      return Icons.check_circle_rounded;
+    case 'Partial':
+      return Icons.contrast_rounded;
+    case 'Unpaid':
+      return Icons.schedule_rounded;
+    case 'Due soon':
+      return Icons.notifications_active_rounded;
+    case 'Overdue':
+      return Icons.error_rounded;
+    case 'Synced':
+      return Icons.cloud_done_rounded;
+    case 'Syncing':
+      return Icons.cloud_sync_rounded;
+    case 'Local':
+      return Icons.cloud_off_rounded;
+    case 'Sync error':
+      return Icons.cloud_off_rounded;
+    default:
+      return Icons.info_outline_rounded;
+  }
+}
+
 class StatusPill extends StatelessWidget {
   const StatusPill({super.key, required this.label, this.compact = false});
 
   final String label;
   final bool compact;
+  final bool showIcon = true;
 
   @override
   Widget build(BuildContext context) {
@@ -159,16 +192,24 @@ class StatusPill extends StatelessWidget {
         vertical: compact ? 3 : 5,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: compact ? 10.5 : 12,
-          fontWeight: FontWeight.w700,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(statusIcon(label), size: compact ? 11 : 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: compact ? 10.5 : 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

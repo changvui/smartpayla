@@ -510,6 +510,15 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     }
   }
 
+  /// Evidence is required only when nothing else proves the money moved: a
+  /// paid sale with no bill photograph and no payment proof is an assertion.
+  /// A cash bill photo already shows the amount, the date and often the paid
+  /// stamp, so it satisfies the requirement on its own.
+  bool get _paymentProofRequired =>
+      _status == PaymentStatus.paid &&
+      widget.transaction == null &&
+      _receiptPath == null;
+
   double get _balance =>
       (_totalValue - _effectiveAdvance).clamp(0, _totalValue);
 
@@ -937,19 +946,29 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
               // A sale collected in full needs proof of the money, for the same
               // reason a credit sale needs the bill: without it the payment
               // history is an assertion nobody can check.
-              if (_status == PaymentStatus.paid && widget.transaction == null) ...[
+              if (widget.transaction == null &&
+                  _status != PaymentStatus.unpaid) ...[
                 const SizedBox(height: 20),
                 const _SectionLabel(
                   icon: Icons.verified_outlined,
-                  title: 'Payment evidence',
+                  title: 'Payment history evidence',
                 ),
                 AppCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Required — attach the receipt, the signed bill or the '
-                        'transfer screenshot for the money you just collected.',
+                        _paymentProofRequired
+                            ? 'Required — attach the receipt, the signed bill '
+                                  'or the transfer screenshot for the money you '
+                                  'just collected.'
+                            : _receiptPath != null
+                                ? 'Optional — the cash bill photo is already '
+                                      'attached and documents this payment. Add '
+                                      'a separate proof only if the bill does '
+                                      'not show that it was paid.'
+                                : 'Optional — add a proof for the payment '
+                                      'history entry.',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: mutedColor,
@@ -983,12 +1002,12 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                             ),
                           ],
                         ),
-                        if (_paymentProofMissing)
+                        if (_paymentProofMissing && _paymentProofRequired)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              'Attach the payment proof before saving a paid '
-                              'sale.',
+                              'Attach the payment proof, or attach the cash '
+                              'bill photo above, before saving a paid sale.',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: AppColors.red,
@@ -1344,16 +1363,15 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       return;
     }
 
-    // A paid sale must carry the proof of the money, not just a status.
-    if (_status == PaymentStatus.paid &&
-        widget.transaction == null &&
-        _paymentProof == null) {
+    // A paid sale must carry something that proves the money moved: the cash
+    // bill photograph, or a separate payment proof.
+    if (_paymentProofRequired && _paymentProof == null) {
       setState(() => _paymentProofMissing = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Attach the payment evidence: a receipt, the signed bill or the '
-            'transfer screenshot.',
+            'Attach the cash bill photo or the payment evidence before saving '
+            'a paid sale.',
           ),
           backgroundColor: AppColors.red,
         ),

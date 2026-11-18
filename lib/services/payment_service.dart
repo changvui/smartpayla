@@ -53,6 +53,11 @@ class PaymentService {
     String? reference,
     bool declaredByCustomer = false,
     String? proofImage,
+    /// Set by the capture form when it records the payment for the sale it has
+    /// just created. Without it the legacy migration below would turn the
+    /// advance into an "opening balance" payment *and* record the same money
+    /// again, which doubles the collected total for new bills.
+    bool skipOpeningBalance = false,
   }) async {
     if (!FirebaseRuntime.initialized) return null;
     if (amount <= 0) return null;
@@ -63,7 +68,7 @@ class PaymentService {
     // A record created before the ledger existed only has `advancePaid`. Turn
     // that number into an opening payment once, so the first real payment does
     // not wipe the history it represents.
-    if (existing.isEmpty && transaction.advancePaid > 0) {
+    if (!skipOpeningBalance && existing.isEmpty && transaction.advancePaid > 0) {
       final now = DateTime.now();
       final opening = Payment(
         id: const Uuid().v4(),

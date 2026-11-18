@@ -588,10 +588,57 @@ class PaymentHistoryCard extends ConsumerWidget {
                       ),
                       if (payment.proofImage != null &&
                           payment.proofImage!.isNotEmpty)
-                        IconButton(
-                          tooltip: 'Payment proof',
-                          onPressed: () => _showProof(context, payment),
-                          icon: const Icon(Icons.image_outlined, size: 18),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _showProof(context, payment),
+                            child: Tooltip(
+                              message: 'Payment proof',
+                              child: Stack(
+                                alignment: Alignment.bottomRight,
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.memory(
+                                      base64Decode(
+                                        payment.proofImage!.substring(
+                                          payment.proofImage!.indexOf(',') + 1,
+                                        ),
+                                      ),
+                                      width: 34,
+                                      height: 34,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(1),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(5),
+                                    ),
+                                    child: const Icon(
+                                      Icons.zoom_in_rounded,
+                                      size: 10,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: Tooltip(
+                            message: 'No payment proof attached',
+                            child: Icon(
+                              Icons.image_not_supported_outlined,
+                              size: 16,
+                              color: muted.withValues(alpha: 0.55),
+                            ),
+                          ),
                         ),
                       if (payment.state != PaymentState.voided)
                         IconButton(

@@ -1447,6 +1447,9 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                   ? 'Paid in full at sale'
                   : 'Advance paid at sale',
               proofImage: _paymentProof,
+              // The sale and its payment are written together, so the legacy
+              // "opening balance" migration must not run here.
+              skipOpeningBalance: true,
             );
       }
       if (!mounted) return;

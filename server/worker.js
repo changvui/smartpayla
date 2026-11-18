@@ -87,19 +87,27 @@ function clean(value, maxLength) {
 // /reminder — DeepSeek
 // ---------------------------------------------------------------------------
 
-function buildPrompt(data, tone) {
+function buildPrompt(data, tone, language) {
   const toneText = {
     formal: "formal, polite and businesslike",
     friendly: "warm, friendly and conversational",
     urgent: "firm and urgent but still respectful",
   }[tone];
 
+  const languageText = {
+    en: "English",
+    ms: "Bahasa Malaysia (Malay)",
+    zh: "Simplified Chinese",
+  }[language] || "English";
+
   return {
     system:
       "You write short payment reminder messages for a Malaysian sales agent. " +
-      `The tone must be ${toneText}. Include the customer name, the outstanding ` +
-      "amount, the item, and how many days overdue. Do not threaten or shame " +
-      "the customer. Keep it under 75 words. Return only the message, with no " +
+      `The tone must be ${toneText}. Write the whole message in ${languageText}, ` +
+      "even if the customer or item names are in another language. Include the " +
+      "customer name, the outstanding amount, the item, how many days overdue, " +
+      "and the bill reference when one is given. Do not threaten or shame the " +
+      "customer. Keep it under 75 words. Return only the message, with no " +
       "headings or quotation marks.",
     user:
       `Customer: ${data.customerName}\n` +
@@ -107,6 +115,7 @@ function buildPrompt(data, tone) {
       `Outstanding amount: RM ${Number(data.amount).toFixed(2)}\n` +
       `Due date: ${data.dueDate}\n` +
       `Days overdue: ${Number(data.daysOverdue) || 0}\n` +
+      (data.reference ? `Bill reference: ${data.reference}\n` : "") +
       "Write the reminder now.",
   };
 }
@@ -144,9 +153,15 @@ async function handleReminder(request, env, origin) {
     return json({ error: "Invalid reminder data" }, 400, origin);
   }
 
+  const language = ["ms", "zh"].includes(String(data.language ?? "").toLowerCase())
+    ? String(data.language).toLowerCase()
+    : "en";
+  const reference = clean(data.reference, 40);
+
   const prompt = buildPrompt(
-    { customerName, item, amount, daysOverdue, dueDate },
+    { customerName, item, amount, daysOverdue, dueDate, reference },
     tone,
+    language,
   );
 
   try {

@@ -597,7 +597,13 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   /// The customer's phone, when the profile has one, so WhatsApp opens the
   /// right chat instead of the contact picker.
   String? get _customerPhone {
-    final profiles = ref.read(customerProvider).valueOrNull ?? const <Customer>[];
+    final List<Customer> profiles;
+    try {
+      profiles = ref.read(customerProvider).valueOrNull ?? const <Customer>[];
+    } catch (error) {
+      debugPrint('Customer lookup failed: $error');
+      return null;
+    }
     for (final profile in profiles) {
       if (normaliseCustomerName(profile.name).toLowerCase() ==
           widget.item.key) {

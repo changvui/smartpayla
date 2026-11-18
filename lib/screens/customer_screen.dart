@@ -119,7 +119,11 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                                 )
                               : null,
                         )
-                      : ListView.separated(
+                      : RefreshIndicator(
+                          onRefresh: () =>
+                              ref.read(customerProvider.notifier).refresh(),
+                          child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(20, 4, 20, 30),
                           itemCount: customers.length,
                           separatorBuilder: (_, __) =>
@@ -138,6 +142,7 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                                 ),
                               ),
                             ),
+                          ),
                           ),
                         ),
                 ),

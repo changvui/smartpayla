@@ -4,7 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart'; 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction; 
+import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
+import 'package:firebase_auth/firebase_auth.dart'; 
 
 import '../data/firebase_config.dart';
 import '../data/firestore_transaction_repository.dart';
@@ -479,67 +480,226 @@ final reminderHistoryProvider =
 // ==========================================
 
 // 1. Customer Management
+/// Customer profiles, offline-first.
+///
+/// Customers were Firestore-only, which made the page look "not synced" in two
+/// situations that both look identical to a user: signed out (writes denied by
+/// the rules, read returns an empty list) and offline (the read throws, the
+/// error was swallowed and an empty list was shown). The notifier now keeps a
+/// local cache, applies every change to it immediately, and queues the cloud
+/// write so it can be retried - the same shape the ledger already uses.
 class CustomerNotifier extends AsyncNotifier<List<Customer>> {
-  String get _userId => ref.read(dataOwnerProvider);
+  static const _cacheKey = 'customers_cache_v1';
+  static const _pendingKey = 'customers_pending_v1';
+
+  SharedPreferences get _prefs => ref.read(sharedPreferencesProvider);
+
+  /// The live session uid: Firestore rules compare the path with
+  /// `request.auth.uid`, so a cached fallback would write to users/demo-agent
+  /// and be rejected.
+  String get _userId {
+    final live = FirebaseAuth.instance.currentUser?.uid;
+    if (live != null && live.isNotEmpty) return live;
+    return ref.read(dataOwnerProvider);
+  }
+
+  bool get _cloudEnabled =>
+      FirebaseRuntime.initialized && FirebaseConfig.configured;
 
   CollectionReference get _customersRef => FirebaseFirestore.instance
       .collection('users')
       .doc(_userId)
       .collection('customers');
 
-  @override
-  Future<List<Customer>> build() async {
-    ref.watch(dataOwnerProvider);
+  List<Customer> _readCache() {
+    final raw = _prefs.getString(_cacheKey);
+    if (raw == null || raw.isEmpty) return const [];
     try {
-      final snapshot = await _customersRef.get();
-      return snapshot.docs
-          .map((doc) => Customer.fromMap(doc.id, doc.data() as Map<String, dynamic>))
-          .toList();
-    } catch (e) {
-      debugPrint("Error fetching customers: $e");
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded.whereType<Map>().map((entry) {
+        final map = Map<String, dynamic>.from(entry);
+        return Customer.fromMap(
+          (map['id'] ?? '').toString(),
+          Map<String, dynamic>.from(map['data'] as Map? ?? const {}),
+        );
+      }).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _writeCache(List<Customer> customers) async {
+    await _prefs.setString(
+      _cacheKey,
+      jsonEncode(
+        customers
+            .map((c) => {'id': c.id, 'data': c.toMap()})
+            .toList(),
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _readPending() {
+    final raw = _prefs.getString(_pendingKey);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is List
+          ? decoded.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+          : [];
+    } catch (_) {
       return [];
     }
   }
 
-  Future<void> addCustomer(Customer customer) async {
+  Future<void> _writePending(List<Map<String, dynamic>> pending) async {
+    if (pending.isEmpty) {
+      await _prefs.remove(_pendingKey);
+    } else {
+      await _prefs.setString(_pendingKey, jsonEncode(pending));
+    }
+  }
+
+  Future<void> _enqueue(String op, String id, Map<String, dynamic> data) async {
+    final pending = _readPending()
+      ..add({'op': op, 'id': id, 'data': data, 'at': DateTime.now().toIso8601String()});
+    await _writePending(pending);
+  }
+
+  /// Replays queued writes. Anything that still fails stays queued.
+  Future<void> _flushPending() async {
+    final pending = _readPending();
+    if (pending.isEmpty || !_cloudEnabled) return;
+    final remaining = <Map<String, dynamic>>[];
+    for (final entry in pending) {
+      final op = (entry['op'] ?? '').toString();
+      final id = (entry['id'] ?? '').toString();
+      try {
+        if (op == 'delete') {
+          await _customersRef.doc(id).delete();
+        } else {
+          final data = Map<String, dynamic>.from(entry['data'] as Map? ?? {});
+          await _customersRef.doc(id).set(data, SetOptions(merge: true));
+        }
+      } catch (error) {
+        debugPrint('Customer sync retry failed: $error');
+        remaining.add(entry);
+      }
+    }
+    await _writePending(remaining);
+  }
+
+  @override
+  Future<List<Customer>> build() async {
+    ref.watch(dataOwnerProvider);
+    final cached = _readCache();
+    if (!_cloudEnabled) return cached;
+
     try {
-      final docRef = await _customersRef.add(customer.toMap());
-      final newCustomer = Customer(
-        id: docRef.id,
-        name: customer.name,
-        phone: customer.phone,
-        address: customer.address,
-      );
-      state = AsyncData([...(state.value ?? []), newCustomer]);
-    } catch (e) {
-      debugPrint("Error adding customer: $e");
-      rethrow; 
+      await _flushPending();
+      final snapshot = await _customersRef.get();
+      final remote = snapshot.docs
+          .map((doc) => Customer.fromMap(
+              doc.id, doc.data() as Map<String, dynamic>))
+          .toList();
+      await _writeCache(remote);
+      return remote;
+    } catch (error) {
+      // Keep whatever the device already knows instead of showing an empty list.
+      debugPrint('Customer fetch failed, using the cache: $error');
+      return cached;
+    }
+  }
+
+  Future<void> addCustomer(Customer customer) async {
+    // A client id keeps the record stable across a retry: Firestore's auto id
+    // would create a second row if the first write never arrived.
+    final id = customer.id.isEmpty
+        ? DateTime.now().microsecondsSinceEpoch.toString()
+        : customer.id;
+    final created = Customer(
+      id: id,
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address,
+    );
+
+    final items = [...(state.valueOrNull ?? const <Customer>[]), created];
+    state = AsyncData(items);
+    await _writeCache(items);
+
+    if (!_cloudEnabled) {
+      await _enqueue('set', id, created.toMap());
+      return;
+    }
+    try {
+      await _customersRef.doc(id).set(created.toMap());
+    } catch (error) {
+      debugPrint('Customer save queued: $error');
+      await _enqueue('set', id, created.toMap());
     }
   }
 
   Future<void> updateCustomer(String id, Customer customer) async {
+    final items = (state.valueOrNull ?? const <Customer>[])
+        .map((c) => c.id == id ? customer : c)
+        .toList();
+    state = AsyncData(items);
+    await _writeCache(items);
+
+    if (!_cloudEnabled) {
+      await _enqueue('set', id, customer.toMap());
+      return;
+    }
     try {
-      await _customersRef.doc(id).update(customer.toMap());
-      final updatedList = (state.value ?? []).map((c) => c.id == id ? customer : c).toList();
-      state = AsyncData(updatedList);
-    } catch (e) {
-      debugPrint("Error updating customer: $e");
-      rethrow;
+      await _customersRef.doc(id).set(customer.toMap(), SetOptions(merge: true));
+    } catch (error) {
+      debugPrint('Customer update queued: $error');
+      await _enqueue('set', id, customer.toMap());
     }
   }
 
   Future<void> deleteCustomer(String id) async {
+    final items =
+        (state.valueOrNull ?? const <Customer>[]).where((c) => c.id != id).toList();
+    state = AsyncData(items);
+    await _writeCache(items);
+
+    if (!_cloudEnabled) {
+      await _enqueue('delete', id, const {});
+      return;
+    }
     try {
       await _customersRef.doc(id).delete();
-      final updatedList = (state.value ?? []).where((c) => c.id != id).toList();
-      state = AsyncData(updatedList);
-    } catch (e) {
-      debugPrint("Error deleting customer: $e");
-      rethrow;
+    } catch (error) {
+      debugPrint('Customer delete queued: $error');
+      await _enqueue('delete', id, const {});
+    }
+  }
+
+  /// Pull the cloud copy again, e.g. from the refresh gesture.
+  Future<void> refresh() async {
+    final cached = _readCache();
+    if (!_cloudEnabled) {
+      state = AsyncData(cached);
+      return;
+    }
+    try {
+      await _flushPending();
+      final snapshot = await _customersRef.get();
+      final remote = snapshot.docs
+          .map((doc) => Customer.fromMap(
+              doc.id, doc.data() as Map<String, dynamic>))
+          .toList();
+      await _writeCache(remote);
+      state = AsyncData(remote);
+    } catch (error) {
+      debugPrint('Customer refresh failed: $error');
+      state = AsyncData(cached);
     }
   }
 }
-
 final customerProvider = AsyncNotifierProvider<CustomerNotifier, List<Customer>>(() {
   return CustomerNotifier();
 });

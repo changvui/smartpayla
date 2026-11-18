@@ -510,14 +510,16 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     }
   }
 
-  /// Evidence is required only when nothing else proves the money moved: a
-  /// paid sale with no bill photograph and no payment proof is an assertion.
-  /// A cash bill photo already shows the amount, the date and often the paid
-  /// stamp, so it satisfies the requirement on its own.
+  /// A paid sale needs both halves of the story: the bill (what was sold and
+  /// for how much) and the proof of payment (that the money arrived). One
+  /// document alone leaves a hole - a bill shows a price, not a receipt.
   bool get _paymentProofRequired =>
-      _status == PaymentStatus.paid &&
-      widget.transaction == null &&
-      _receiptPath == null;
+      _status == PaymentStatus.paid && widget.transaction == null;
+
+  /// A paid sale cannot fall back to the "no photo, recorded reason" path: the
+  /// reason explains a missing bill, it does not prove a payment.
+  bool get _billPhotoRequired =>
+      _status == PaymentStatus.paid && widget.transaction == null;
 
   double get _balance =>
       (_totalValue - _effectiveAdvance).clamp(0, _totalValue);
@@ -959,22 +961,29 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                     children: [
                       Text(
                         _paymentProofRequired
-                            ? 'Required — attach the receipt, the signed bill '
-                                  'or the transfer screenshot for the money you '
-                                  'just collected.'
-                            : _receiptPath != null
-                                ? 'Optional — the cash bill photo is already '
-                                      'attached and documents this payment. Add '
-                                      'a separate proof only if the bill does '
-                                      'not show that it was paid.'
-                                : 'Optional — add a proof for the payment '
-                                      'history entry.',
+                            ? 'Required — a paid sale needs both the cash bill '
+                                  'photo and the proof of payment: a receipt, '
+                                  'the signed bill, or the transfer screenshot.'
+                            : 'Optional — add a proof for the payment history '
+                                  'entry.',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: mutedColor,
                           height: 1.4,
                         ),
                       ),
+                      if (_paymentProofRequired) ...[
+                        const SizedBox(height: 10),
+                        _EvidenceCheck(
+                          label: 'Cash bill photo',
+                          done: _receiptPath != null,
+                        ),
+                        const SizedBox(height: 4),
+                        _EvidenceCheck(
+                          label: 'Payment evidence',
+                          done: _paymentProof != null,
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       if (_uploadingProof)
                         const Center(child: CircularProgressIndicator())
@@ -1006,8 +1015,8 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              'Attach the payment proof, or attach the cash '
-                              'bill photo above, before saving a paid sale.',
+                              'Attach the payment proof before saving a paid '
+                              'sale.',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: AppColors.red,
@@ -1322,6 +1331,22 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       );
       return;
     }
+    // A paid sale needs the bill photograph itself. The "recorded reason" path
+    // exists for bills that were never printed, not for sales where the money
+    // is already in hand.
+    if (_billPhotoRequired && _receiptPath == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Attach the cash bill photo — a paid sale needs both the bill and '
+            'the proof of payment.',
+          ),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+
     // Every debt must be backed by something: a photograph of the paper bill or
     // a recorded reason why there is none. A blank record is not accepted.
     if (_receiptPath == null && _evidenceReason == null) {
@@ -1370,8 +1395,8 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Attach the cash bill photo or the payment evidence before saving '
-            'a paid sale.',
+            'Attach the payment evidence: a receipt, the signed bill or the '
+            'transfer screenshot.',
           ),
           backgroundColor: AppColors.red,
         ),
@@ -1470,6 +1495,44 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     Navigator.of(context).popUntil((route) => route.isFirst);
     messenger.showSnackBar(
       const SnackBar(content: Text('Transaction deleted.')),
+    );
+  }
+}
+
+/// One line in the "both required" checklist shown inside the evidence box.
+class _EvidenceCheck extends StatelessWidget {
+  const _EvidenceCheck({required this.label, required this.done});
+
+  final String label;
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = done ? AppColors.green : AppColors.red;
+    return Row(
+      children: [
+        Icon(
+          done ? Icons.check_circle_rounded : Icons.cancel_outlined,
+          size: 15,
+          color: color,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+        Text(
+          done ? '  attached' : '  missing',
+          style: TextStyle(
+            fontSize: 11,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

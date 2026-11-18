@@ -539,11 +539,11 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
     }
   }
 
-  Future<void> _record() async {
-    final text = _draft.text.trim();
+  Future<void> _record(String text) async {
     if (text.isEmpty) return;
     final now = DateTime.now();
-    await ReminderLog.add(
+    try {
+      await ReminderLog.add(
       SentReminder(
         customerKey: widget.item.key,
         customerName: widget.item.name,
@@ -554,27 +554,39 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
         sentAt: now,
       ),
     );
-    await ref.read(reminderHistoryProvider.notifier).add(
-          ReminderRecord(
-            id: const Uuid().v4(),
-            transactionId: _bill.id,
-            customerName: widget.item.name,
-            tone: _tone,
-            text: text,
-            createdAt: now,
-            usedFallback: _quotaExhausted,
-          ),
-        );
+    } catch (error) {
+      // The log is an aid, not the record itself: failing to write it must not
+      // stop the message being sent.
+      debugPrint('ReminderLog failed: $error');
+    }
+
+    try {
+      await ref.read(reminderHistoryProvider.notifier).add(
+            ReminderRecord(
+              id: const Uuid().v4(),
+              transactionId: _bill.id,
+              customerName: widget.item.name,
+              tone: _tone,
+              text: text,
+              createdAt: now,
+              usedFallback: _quotaExhausted,
+            ),
+          );
+    } catch (error) {
+      debugPrint('Reminder history failed: $error');
+    }
   }
 
   Future<void> _copy() async {
+    final text = _draft.text.trim();
     try {
-      await Clipboard.setData(ClipboardData(text: _draft.text));
-    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (error) {
       // Clipboard can fail on a browser that has lost focus; the message is
       // still visible for a manual copy.
+      debugPrint('Clipboard failed: $error');
     }
-    await _record();
+    await _record(text);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Reminder copied.')),
@@ -599,13 +611,35 @@ class _ComposeSheetState extends ConsumerState<_ComposeSheet> {
   }
 
   Future<void> _share() async {
-    await _record();
-    if (!mounted) return;
-    final opened = await openWhatsApp(_draft.text, phone: _customerPhone);
+    final text = _draft.text.trim();
+    if (text.isEmpty) return;
+
+    // Start the launch *before* any await: a browser only allows a new tab while
+    // it still considers the click to be in progress, and the log write below
+    // takes long enough to lose that permission.
+    Future<bool>? launch;
+    try {
+      launch = openWhatsApp(text, phone: _customerPhone);
+    } catch (error) {
+      debugPrint('WhatsApp launch threw: $error');
+    }
+
+    // Keep the text on the clipboard as well, so a blocked popup still leaves
+    // the agent one paste away from sending.
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+    } catch (error) {
+      debugPrint('Clipboard failed: $error');
+    }
+
+    await _record(text);
+    final opened = launch == null ? false : await launch;
     if (!mounted) return;
     if (!opened) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reminder copied — paste it into WhatsApp.')),
+        const SnackBar(
+          content: Text('Reminder copied — paste it into WhatsApp.'),
+        ),
       );
     }
     Navigator.of(context).pop(true);

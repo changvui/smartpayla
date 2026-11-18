@@ -510,16 +510,18 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     }
   }
 
-  /// A paid sale needs both halves of the story: the bill (what was sold and
-  /// for how much) and the proof of payment (that the money arrived). One
-  /// document alone leaves a hole - a bill shows a price, not a receipt.
+  /// Any sale that records money received - partial or paid - needs both
+  /// halves of the story: the bill (what was sold and for how much) and the
+  /// proof of payment (that the money arrived). One document alone leaves a
+  /// hole: a bill shows a price, not a receipt, and a receipt shows money
+  /// without saying which sale it settles.
   bool get _paymentProofRequired =>
-      _status == PaymentStatus.paid && widget.transaction == null;
+      _status != PaymentStatus.unpaid && widget.transaction == null;
 
-  /// A paid sale cannot fall back to the "no photo, recorded reason" path: the
-  /// reason explains a missing bill, it does not prove a payment.
+  /// Such a sale also cannot fall back to the "no photo, recorded reason" path:
+  /// the reason explains a missing bill, it does not prove a payment.
   bool get _billPhotoRequired =>
-      _status == PaymentStatus.paid && widget.transaction == null;
+      _status != PaymentStatus.unpaid && widget.transaction == null;
 
   double get _balance =>
       (_totalValue - _effectiveAdvance).clamp(0, _totalValue);
@@ -961,9 +963,10 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                     children: [
                       Text(
                         _paymentProofRequired
-                            ? 'Required — a paid sale needs both the cash bill '
-                                  'photo and the proof of payment: a receipt, '
-                                  'the signed bill, or the transfer screenshot.'
+                            ? 'Required — this sale records money received, so '
+                                  'it needs both the cash bill photo and the '
+                                  'proof of payment: a receipt, the signed '
+                                  'bill, or the transfer screenshot.'
                             : 'Optional — add a proof for the payment history '
                                   'entry.',
                         style: TextStyle(
@@ -1015,8 +1018,8 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              'Attach the payment proof before saving a paid '
-                              'sale.',
+                              'Attach the payment proof before saving a sale '
+                              'with money received.',
                               style: TextStyle(
                                 fontSize: 11.5,
                                 color: AppColors.red,
@@ -1338,8 +1341,8 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Attach the cash bill photo — a paid sale needs both the bill and '
-            'the proof of payment.',
+            'Attach the cash bill photo — a sale with money received needs both '
+            'the bill and the proof of payment.',
           ),
           backgroundColor: AppColors.red,
         ),

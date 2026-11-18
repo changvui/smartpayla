@@ -41,6 +41,10 @@ class TransactionFormScreen extends ConsumerStatefulWidget {
 class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _customer;
+
+  /// A name the scanner read off a bill that has no customer profile yet. The
+  /// form never stores it: the agent creates the profile first.
+  String? _unknownScannedCustomer;
   late final TextEditingController _item;
   late final TextEditingController _total;
   late final TextEditingController _advance;
@@ -143,7 +147,15 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     setState(() {
       final party = scanned.partyName;
       if (party != null && _customer.text.trim().isEmpty) {
-        _customer.text = party;
+        // Only a name that already exists as a profile may be selected. A new
+        // name is held aside and offered as a "create profile" action, because
+        // a customer that exists only on one bill breaks the statement link.
+        final match = _findProfile(party);
+        if (match != null) {
+          _customer.text = match.name;
+        } else {
+          _unknownScannedCustomer = party;
+        }
       }
       if (scanned.amount != null) {
         _total.text = scanned.amount!.toStringAsFixed(2);
@@ -182,6 +194,54 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
         duration: Duration(seconds: 3),
       ),
     );
+  }
+
+  /// The customer profile whose name matches [name] after normalisation.
+  Customer? _findProfile(String name) {
+    final wanted = normaliseCustomerName(name).toLowerCase();
+    if (wanted.isEmpty) return null;
+    for (final customer in ref.read(customerProvider).valueOrNull ?? const []) {
+      if (normaliseCustomerName(customer.name).toLowerCase() == wanted) {
+        return customer;
+      }
+    }
+    return null;
+  }
+
+  /// Create the profile the scanner read, then select it.
+  Future<void> _createScannedProfile() async {
+    final name = _unknownScannedCustomer;
+    if (name == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final notifier = ref.read(customerProvider.notifier);
+      await notifier.addCustomer(
+        Customer(
+          id: '',
+          name: normaliseCustomerName(name),
+          phone: 'No phone',
+          address: 'Not set',
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _customer.text = normaliseCustomerName(name);
+        _unknownScannedCustomer = null;
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Profile created for ${normaliseCustomerName(name)}.'),
+          backgroundColor: AppColors.green,
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not create the profile: $error'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+    }
   }
 
   /// Pick a saved customer instead of retyping the name.
@@ -520,6 +580,43 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                         return null;
                       },
                     ),
+                    if (_unknownScannedCustomer != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.amber.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.amber.withValues(alpha: 0.45),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.info_outline_rounded,
+                              size: 18,
+                              color: AppColors.amber,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _unknownScannedCustomer == null
+                                    ? ''
+                                    : 'The bill names '
+                                          '"$_unknownScannedCustomer", which has '
+                                          'no profile yet.',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _createScannedProfile,
+                              child: const Text('Create'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     // Item lines: description + qty + unit price, like the
                     // printed cash bill. The total below is their sum.
@@ -1055,7 +1152,22 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
     );
   }
 
-  Future<void> _save() async {    if (!_formKey.currentState!.validate()) return;
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    // A sale must point at a customer profile, not at a typed name: the profile
+    // is what the statement link, the claim matching and the Customers tab use.
+    if (_findProfile(_customer.text) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Create this customer on the Customers page first, then pick them '
+            'here.',
+          ),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
     // Every debt must be backed by something: a photograph of the paper bill or
     // a recorded reason why there is none. A blank record is not accepted.
     if (_receiptPath == null && _evidenceReason == null) {

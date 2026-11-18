@@ -237,25 +237,28 @@ Errors: `400` invalid JSON or missing prompt, `429` rate limited,
 
 The endpoint is additive: `/reminder`, `/scan` and `/scan/agree` are unchanged.
 
-## 10. Scan engines and the free Gemini tier
+## 10. Scan engine: Gemini Flash only
 
-`/scan` tries three engines in order and returns the first one that produces a
-parsable bill:
+`/scan` uses a single vision engine, Google Gemini Flash, on its free tier. The
+two earlier engines (Qwen2.5-VL through OpenRouter and the Workers AI binding)
+were removed once Gemini proved more accurate on handwritten Malaysian bills and
+did not require a paid key; keeping one path also removes two failure modes to
+explain.
 
-| Order | Engine | Secret | Cost | Notes |
-|---|---|---|---|---|
-| 1 | Gemini Flash | `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`) | free tier | strongest on handwriting |
-| 2 | Qwen2.5-VL via OpenRouter | `VISION_API_KEY` | per token | good on printed bills and tables |
-| 3 | Workers AI (llava / qwen-vl) | none, `AI` binding | free | weakest on small text |
+| Item | Value |
+|---|---|
+| Secret | `GEMINI_API_KEY` (required) |
+| Optional | `GEMINI_MODEL`, default `gemini-2.5-flash` |
+| Fallback ids | `gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-flash-lite-latest` (a 404 moves on) |
+| Timeout | 30 s |
+| Response | `{ "bill": { ... }, "engine": "gemini (gemini-2.5-flash)" }` |
 
-The Gemini model id is configurable because Google retires ids: a `404` moves to
-the next id in `gemini-2.5-flash`, `gemini-2.0-flash`,
-`gemini-flash-lite-latest` instead of failing the scan. A `429` from Gemini
-("quota exhausted") is reported in the engine notes and the next engine is
-tried, so the feature degrades instead of breaking.
+Errors: `503` key missing, `429` daily quota exhausted, `422` the image is not a
+bill, `502` upstream failure, `413` image over the size limit, `415` unsupported
+type.
 
-Get a key at https://aistudio.google.com/apikey. The free tier has no billing
-requirement, but its daily request limit is shown per project in AI Studio and
-can be small (tens to a few hundred requests per day depending on the model),
-and free-tier inputs may be used by Google to improve their models - both are
-noted in the report as prototype constraints.
+Get a key at https://aistudio.google.com/apikey. The free tier needs no billing
+account, but its daily request limit is shown per project in AI Studio and can be
+small (tens to a few hundred requests per day depending on the model), and
+free-tier inputs may be used by Google to improve their models. Both are recorded
+in the report as prototype constraints.

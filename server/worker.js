@@ -12,7 +12,7 @@
  *
  * Variables / secrets in Cloudflare (Settings -> Variables and Secrets):
  *   DEEPSEEK_API_KEY = sk-...     (secret, required for /reminder)
- *   VISION_API_KEY   = sk-or-v1-... (secret, preferred engine for /scan)
+ *   GEMINI_API_KEY   = AIza... (secret, the only engine for /scan)
  *   VISION_BASE_URL  = https://openrouter.ai/api/v1        (default)
  *   VISION_MODEL     = qwen/qwen2.5-vl-72b-instruct:free   (default)
  *
@@ -420,46 +420,6 @@ function normaliseBill(bill) {
  * (if set) and then a couple of well-known vision models; the first one that
  * answers wins. This keeps the demo working when a model is retired.
  */
-function scanModels(env) {
-  const custom = String(env.SCAN_MODEL ?? "").trim();
-  const fallbacks = [
-    "@cf/meta/llama-3.2-11b-vision-instruct",
-    "@cf/llava-hf/llava-1.5-7b-hf",
-  ];
-  return [...new Set([...(custom ? [custom] : []), ...fallbacks])];
-}
-
-async function scanWithWorkersAi(env, imageBytes) {
-  const errors = [];
-
-  for (const model of scanModels(env)) {
-    try {
-      const result = await env.AI.run(model, {
-        prompt: SCAN_PROMPT,
-        image: Array.from(imageBytes),
-        max_tokens: 512,
-      });
-
-      // Different Workers AI vision models name the field differently:
-      // llama/llava -> response, others -> result / description.
-      const text =
-        typeof result === "string"
-          ? result
-          : result?.response ?? result?.result ?? result?.description;
-
-      if (typeof text === "string" && text.trim()) {
-        return { model, text };
-      }
-      errors.push(`${model}: empty response`);
-    } catch (error) {
-      errors.push(`${model}: ${String(error).slice(0, 90)}`);
-    }
-  }
-
-  throw new Error(errors.join(" | ").slice(0, 320));
-}
-
-/** One request, hard-capped so a stuck upstream cannot hang the Worker. */
 async function fetchWithTimeout(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -476,153 +436,18 @@ async function fetchWithTimeout(url, options, timeoutMs = 30000) {
  * what a cash bill is.
  *
  * Variables (Cloudflare -> Settings -> Variables):
- *   VISION_API_KEY   sk-or-v1-...                                  (required)
+ *   GEMINI_API_KEY   AIza...                                       (required)
  *   VISION_BASE_URL  https://openrouter.ai/api/v1                  (default)
  *   VISION_MODEL     qwen/qwen2.5-vl-72b-instruct:free             (default)
  *
  * Because it is OpenAI-compatible, the same code also drives Groq, Mistral,
  * Together, a self-hosted vLLM, etc. — only the three variables change.
  */
-async function scanViaOpenRouter(env, imageBase64, mimeType) {
-  const key = String(env.VISION_API_KEY ?? "").trim();
-  if (!key) return null;
-
-  const base = (
-    String(env.VISION_BASE_URL ?? "").trim() || "https://openrouter.ai/api/v1"
-  ).replace(/\/+$/, "");
-  const model =
-    String(env.VISION_MODEL ?? "").trim() ||
-    "qwen/qwen2.5-vl-72b-instruct:free";
-
-  const body = {
-    model,
-    temperature: 0.1,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: SCAN_PROMPT },
-          {
-            type: "image_url",
-            image_url: { url: `data:${mimeType};base64,${imageBase64}` },
-          },
-        ],
-      },
-    ],
-  };
-
-  const response = await fetchWithTimeout(
-    `${base}/chat/completions`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-        "HTTP-Referer": "https://smartpayla-kerry.app",
-        "X-Title": "SmartPayLA",
-      },
-      body: JSON.stringify(body),
-    },
-    30000,
-  );
-
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 140);
-    throw new Error(`openrouter ${response.status}: ${detail}`);
-  }
-
-  const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content;
-  if (typeof text !== "string" || !text.trim()) {
-    throw new Error("openrouter: empty response");
-  }
-  return { model, text };
-}
-
-
-// ---------------------------------------------------------------------------
-// Gemini vision
-// ---------------------------------------------------------------------------
-
-async function scanViaGemini(env, imageBase64, mimeType) {
-  const key = String(env.GEMINI_API_KEY ?? "").trim();
-  if (!key) throw new Error("gemini: no key");
-
-  const configured = String(env.GEMINI_MODEL ?? "").trim();
-  const models = configured
-    ? [configured, ...GEMINI_MODEL_FALLBACKS.filter((m) => m !== configured)]
-    : GEMINI_MODEL_FALLBACKS.slice();
-  if (!models.length) models.push(GEMINI_MODEL_DEFAULT);
-
-  let lastError = "gemini: unavailable";
-  for (const model of models) {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}` +
-      `:generateContent?key=${encodeURIComponent(key)}`;
-
-    const response = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: SCAN_PROMPT },
-                { inline_data: { mime_type: mimeType, data: imageBase64 } },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: 800,
-            responseMimeType: "application/json",
-          },
-        }),
-      },
-      30_000,
-    );
-
-    if (response.status === 404) {
-      // Model id retired for this key: try the next one.
-      lastError = `gemini ${model}: not found`;
-      continue;
-    }
-    if (response.status === 429) {
-      throw new Error("gemini: quota exhausted");
-    }
-    if (!response.ok) {
-      const detail = (await response.text()).slice(0, 140);
-      throw new Error(`gemini ${model}: ${response.status} ${detail}`);
-    }
-
-    const data = await response.json();
-    const text = data?.candidates?.[0]?.content?.parts
-      ?.map((part) => part?.text ?? "")
-      .join("");
-    if (typeof text !== "string" || !text.trim()) {
-      lastError = `gemini ${model}: empty response`;
-      continue;
-    }
-    return { model, text };
-  }
-
-  throw new Error(lastError);
-}
-
 async function handleScan(request, env, origin) {
   const hasGemini = Boolean(String(env.GEMINI_API_KEY ?? "").trim());
-  const hasOpenRouter = Boolean(String(env.VISION_API_KEY ?? "").trim());
-  const hasWorkersAi = Boolean(env.AI) && typeof env.AI.run === "function";
-
-  if (!hasGemini && !hasOpenRouter && !hasWorkersAi) {
+  if (!hasGemini) {
     return json(
-      {
-        error:
-          "Scan is not configured: set GEMINI_API_KEY (recommended), " +
-          "VISION_API_KEY, or bind Workers AI as `AI`.",
-      },
+      { error: "Scan is not configured: set GEMINI_API_KEY." },
       503,
       origin,
     );
@@ -653,52 +478,30 @@ async function handleScan(request, env, origin) {
     return json({ error: "Unsupported image type" }, 415, origin);
   }
 
-  const notes = [];
-
-  // 1) Gemini Flash — free tier, best handwriting accuracy of the three.
-  if (hasGemini) {
-    try {
-      const { model, text } = await scanViaGemini(env, image, mimeType);
-      const bill = parseBill(text);
-      if (bill) return json({ bill, engine: `gemini (${model})` }, 200, origin);
-      notes.push("gemini: unreadable output");
-    } catch (error) {
-      notes.push(String(error).slice(0, 120));
-    }
+  // Gemini Flash is the only vision engine: free tier, strongest of the
+  // models evaluated on handwritten Malaysian bills.
+  try {
+    const { model, text } = await scanViaGemini(env, image, mimeType);
+    const bill = parseBill(text);
+    if (bill) return json({ bill, engine: `gemini (${model})` }, 200, origin);
+    return json(
+      { error: "The image could not be read as a bill. Try a clearer photo." },
+      422,
+      origin,
+    );
+  } catch (error) {
+    const message = String(error);
+    const quota = message.includes("quota");
+    return json(
+      {
+        error: quota
+          ? "AI quota exhausted for today. Try again later."
+          : `Scan failed: ${message.slice(0, 200)}`,
+      },
+      quota ? 429 : 502,
+      origin,
+    );
   }
-
-  // 2) Qwen2.5-VL via OpenRouter — accurate on documents and tables.
-  if (hasOpenRouter) {
-    try {
-      const { model, text } = await scanViaOpenRouter(env, image, mimeType);
-      const bill = parseBill(text);
-      if (bill) return json({ bill, engine: `openrouter (${model})` }, 200, origin);
-      notes.push(`openrouter: unreadable output`);
-    } catch (error) {
-      notes.push(String(error).slice(0, 120));
-    }
-  }
-
-  // 3) Workers AI — no key, always available, weaker on small text.
-  if (hasWorkersAi) {
-    try {
-      const imageBytes = Uint8Array.from(atob(image), (ch) => ch.charCodeAt(0));
-      const { model, text } = await scanWithWorkersAi(env, imageBytes);
-      const bill = parseBill(text);
-      if (bill) {
-        return json({ bill, engine: `workers-ai (${model})` }, 200, origin);
-      }
-      notes.push("workers-ai: unreadable output");
-    } catch (error) {
-      notes.push(String(error).slice(0, 120));
-    }
-  }
-
-  return json(
-    { error: `Scan failed — ${notes.join(" | ").slice(0, 340)}` },
-    502,
-    origin,
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -715,36 +518,6 @@ async function rateLimited(env, ip, bucketName, limit) {
   return false;
 }
 
-/**
- * One-shot licence acceptance for the Llama vision model.
- *
- * Meta requires `{ prompt: "agree" }` once per account before the model can be
- * used. Open https://<worker>/scan/agree in a browser to accept; the request
- * runs under this Worker's own Cloudflare account, so no API token is needed.
- * Safe to leave in place: it only forwards the word "agree".
- */
-async function handleAgree(env, origin) {
-  if (!env.AI || typeof env.AI.run !== "function") {
-    return json({ error: "No Workers AI binding named `AI`" }, 503, origin);
-  }
-
-  const model = "@cf/meta/llama-3.2-11b-vision-instruct";
-  try {
-    const response = await env.AI.run(model, { prompt: "agree" });
-    return json(
-      {
-        model,
-        ok: true,
-        response: String(response?.response ?? response ?? "").slice(0, 120),
-      },
-      200,
-      origin,
-    );
-  } catch (error) {
-    return json({ model, ok: false, error: String(error).slice(0, 200) }, 502, origin);
-  }
-}
-
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -755,11 +528,6 @@ export default {
     const isLocalDev = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
     const allowed = origin === "" || ALLOWED_ORIGINS.has(origin) || isLocalDev;
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
-
-    // Browser-friendly, no Origin header, GET is fine.
-    if (path.endsWith("/scan/agree")) {
-      return handleAgree(env, origin);
-    }
 
     const isScan = path.endsWith("/scan");
     const isChat = path.endsWith("/chat");

@@ -1,11 +1,86 @@
-// Picks the receipt-scanning engine at compile time.
-//
-// * Android / iOS / desktop -> receipt_scanner_io.dart, on-device ML Kit
-//   (offline, no key, matches the report's §2.2.5).
-// * Web (JS or WASM) -> receipt_scanner_web.dart, the SmartPayLA Worker,
-//   because ML Kit has no browser implementation.
-//
-// Both files expose the same `ReceiptScanner` API, so screens import only this
-// file and never care which platform they run on.
-export 'receipt_scanner_web.dart'
-    if (dart.library.io) 'receipt_scanner_io.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
+import 'scanned_bill.dart';
+
+/// Reads a bill photograph through the SmartPayLA Worker, on every platform.
+///
+/// The Worker calls Gemini Flash, so Android, iOS and the web share one engine:
+/// the same prompt, the same parsing and the same failure messages. ML Kit was
+/// removed because the two engines disagreed on the same photo and the on-device
+/// heuristics could not read a handwritten total reliably.
+class ReceiptScanner {
+  static const _proxyUrl = String.fromEnvironment('REMINDER_PROXY_URL');
+
+  static const _maxBase64Length = 2000000;
+
+  static bool get isConfigured => _proxyUrl.trim().isNotEmpty;
+
+  Future<ScannedBill> scan({
+    required Uint8List bytes,
+    required String mimeType,
+    String? path,
+  }) async {
+    if (!isConfigured) {
+      throw const ReceiptScanException(
+        'Receipt scanning is not configured. Run with '
+        '--dart-define=REMINDER_PROXY_URL=<worker url>.',
+      );
+    }
+    if (bytes.isEmpty) {
+      throw const ReceiptScanException('The selected image is empty.');
+    }
+
+    final image = base64Encode(bytes);
+    if (image.length > _maxBase64Length) {
+      throw const ReceiptScanException(
+        'That photo is too large. Try again — SmartPayLA compresses it first.',
+      );
+    }
+
+    final base = _proxyUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final endpoint = base.endsWith('/scan') ? base : '$base/scan';
+
+    late final http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse(endpoint),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'image': image, 'mimeType': mimeType}),
+          )
+          .timeout(const Duration(seconds: 90));
+    } catch (e) {
+      throw ReceiptScanException('Could not reach the scan service: $e');
+    }
+
+    if (response.statusCode != 200) {
+      final body = response.body;
+      throw ReceiptScanException(
+        'Scan service error ${response.statusCode}: '
+        '${body.length > 180 ? '${body.substring(0, 180)}…' : body}',
+      );
+    }
+
+    final Map<String, dynamic> decoded;
+    try {
+      decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (_) {
+      throw const ReceiptScanException(
+        'The scan service returned invalid JSON.',
+      );
+    }
+
+    final bill = decoded['bill'];
+    if (bill is! Map) {
+      final message = decoded['error'];
+      throw ReceiptScanException(
+        message is String ? message : 'The scan service returned no result.',
+      );
+    }
+
+    return ScannedBill.fromMap(Map<String, dynamic>.from(bill));
+  }
+}

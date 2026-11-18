@@ -5,6 +5,7 @@ import '../models/customer.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'customer_detail_screen.dart';
 
 class CustomerScreen extends ConsumerStatefulWidget {
   const CustomerScreen({super.key});
@@ -130,6 +131,13 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                               existing: customers[index],
                             ),
                             onDelete: () => _deleteCustomer(customers[index]),
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => CustomerDetailScreen(
+                                  customer: customers[index],
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                 ),
@@ -158,6 +166,9 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
   }) async {
     final nameController = TextEditingController(text: existing?.name ?? '');
     final phoneController = TextEditingController(text: existing?.phone ?? '');
+    final addressController = TextEditingController(
+      text: existing?.address ?? '',
+    );
     final isEdit = existing != null;
 
     await showDialog<void>(
@@ -179,6 +190,14 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Phone number'),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: addressController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Address (optional)',
+                ),
+              ),
             ],
           ),
           actions: [
@@ -199,6 +218,7 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                   return;
                 }
                 final phone = phoneController.text.trim();
+                final address = addressController.text.trim();
                 Navigator.pop(dialogContext);
 
                 final messenger = ScaffoldMessenger.of(context);
@@ -212,7 +232,7 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                         id: editing.id,
                         name: name,
                         phone: phone.isEmpty ? 'No phone' : phone,
-                        address: editing.address,
+                        address: address.isEmpty ? editing.address : address,
                       ),
                     );
                   } else {
@@ -221,7 +241,7 @@ class _CustomerScreenState extends ConsumerState<CustomerScreen> {
                         id: '',
                         name: name,
                         phone: phone.isEmpty ? 'No phone' : phone,
-                        address: 'Not set',
+                        address: address.isEmpty ? 'Not set' : address,
                       ),
                     );
                   }
@@ -259,11 +279,13 @@ class _CustomerCard extends StatelessWidget {
     required this.customer,
     required this.onEdit,
     required this.onDelete,
+    required this.onTap,
   });
 
   final Customer customer;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -273,7 +295,10 @@ class _CustomerCard extends StatelessWidget {
         ? '?'
         : customer.name.trim().substring(0, 1).toUpperCase();
 
-    return AppCard(
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: AppCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
@@ -333,6 +358,7 @@ class _CustomerCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
       ),
     );
   }

@@ -35,10 +35,9 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
 
-            // google_mlkit_text_recognition references optional script models
-            // (Chinese, Devanagari, Japanese, Korean) that this app does not
-            // bundle. R8 treats them as missing classes and fails the build, so
-            // keep minification off for the prototype build.
+            // Minification stays off for the prototype: R8 on this toolchain
+            // rejects the optional classes that some plugins reference without
+            // bundling. A production build would enable it with keep rules.
             isMinifyEnabled = false
             isShrinkResources = false
         }

@@ -1,8 +1,12 @@
-﻿import 'package:fl_chart/fl_chart.dart';
+﻿import 'dart:convert';
+
+import 'package:fl_chart/fl_chart.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/transaction.dart';
+import '../services/reminder_service.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -152,6 +156,7 @@ class _HomeContent extends StatelessWidget {
             const SectionHeader(title: 'Debt aging'),
             _AgingCard(aging: aging, total: outstanding),
             const SizedBox(height: 22),
+            _AiInsightCard(transactions: transactions),
             const _PendingClaimsBanner(),
             const SectionHeader(title: 'Quick actions'),
             
@@ -758,6 +763,187 @@ class _QuickAction extends StatelessWidget {
 }
 /// Surfaces customer payment claims on the dashboard, so a confirmation is
 /// never more than one tap away.
+
+// ---------------------------------------------------------------------------
+// AI insight card (partner module)
+// ---------------------------------------------------------------------------
+
+/// Asks the Worker for a short action plan based on the current debt. The text
+/// is advisory: if the model is unavailable the card degrades to a plain
+/// message and the dashboard is unaffected.
+class _AiInsightCard extends ConsumerStatefulWidget {
+  const _AiInsightCard({required this.transactions});
+
+  final List<Transaction> transactions;
+
+  @override
+  ConsumerState<_AiInsightCard> createState() => _AiInsightCardState();
+}
+
+class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
+  bool _loading = true;
+  String _text = '';
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _generate();
+  }
+
+  Future<void> _generate() async {
+    setState(() {
+      _loading = true;
+      _text = '';
+      _failed = false;
+    });
+
+    final base = ReminderService.defaultProxyUrl
+        .trim()
+        .replaceAll(RegExp(r'/+$'), '');
+    if (base.isEmpty) {
+      setState(() {
+        _loading = false;
+        _failed = true;
+        _text = 'AI is not configured for this build.';
+      });
+      return;
+    }
+
+    final open = widget.transactions.where((t) => t.isOpen).toList();
+    if (open.isEmpty) {
+      setState(() {
+        _loading = false;
+        _text = 'No outstanding debt — nothing to chase today.';
+      });
+      return;
+    }
+
+    final total = open.fold<double>(0, (sum, t) => sum + t.balanceDue);
+    final lines = open
+        .map(
+          (t) =>
+              '${t.customerName} owes RM ${t.balanceDue.toStringAsFixed(2)} '
+              '(${t.daysOverdue} days overdue)',
+        )
+        .join('; ');
+
+    final prompt =
+        'Act as a practical credit-control assistant for a Malaysian sales '
+        'agent. Total outstanding RM ${total.toStringAsFixed(2)}. '
+        'Debts: $lines. '
+        'Give a three-sentence action plan: who to chase first and why. '
+        'Be direct and professional, no headings.';
+
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$base/chat'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'prompt': prompt}),
+          )
+          .timeout(const Duration(seconds: 25));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final text = data is Map ? data['text']?.toString() : null;
+        setState(() {
+          _loading = false;
+          _text = (text == null || text.trim().isEmpty)
+              ? 'The assistant returned an empty answer.'
+              : text.trim();
+        });
+      } else {
+        setState(() {
+          _loading = false;
+          _failed = true;
+          _text = response.statusCode == 429
+              ? 'The AI quota for today is used up.'
+              : 'The assistant is unavailable (${response.statusCode}).';
+        });
+      }
+    } catch (error) {
+      setState(() {
+        _loading = false;
+        _failed = true;
+        _text = 'Could not reach the assistant.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final background = isDark ? const Color(0xFF232B3A) : const Color(0xFFEEF4FF);
+    final ink = isDark ? Colors.white : const Color(0xFF10233F);
+    final accent = _failed
+        ? AppColors.red
+        : (isDark ? const Color(0xFF8FB4FF) : const Color(0xFF1D4ED8));
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accent.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 18, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'AI action plan',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: ink,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Regenerate',
+                visualDensity: VisualDensity.compact,
+                onPressed: _loading ? null : _generate,
+                icon: Icon(Icons.refresh_rounded, size: 18, color: accent),
+              ),
+            ],
+          ),
+          if (_loading)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  SizedBox(
+                    height: 14,
+                    width: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Reading your ledger…',
+                    style: TextStyle(fontSize: 12, color: ink),
+                  ),
+                ],
+              ),
+            )
+          else
+            Text(
+              _text,
+              style: TextStyle(fontSize: 12.5, height: 1.45, color: ink),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PendingClaimsBanner extends ConsumerWidget {
   const _PendingClaimsBanner();
 

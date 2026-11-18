@@ -1029,99 +1029,59 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     );
   }
 
-  /// Informational payment channels. Nothing here calls a payment gateway: the
-  /// customer pays through their own app and the agent confirms the money
-  /// manually, which is what a small merchant actually does.
+  /// A second way to pay, but only when the agent has actually configured one.
+  ///
+  /// The statement already shows a DuitNow QR and the exact amount, so a list of
+  /// generic "you can also pay by cash / e-wallet" rows told the customer
+  /// nothing: a static QR has no amount, and cash is handed over in person. What
+  /// is genuinely missing when a QR cannot be scanned is the bank account, so
+  /// that one line survives - and only if it has been filled in.
   Widget _otherWays(String bankNote, String payee) {
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        tilePadding: EdgeInsets.zero,
-        childrenPadding: const EdgeInsets.only(bottom: 6),
-        shape: const Border(),
-        collapsedShape: const Border(),
-        leading: const Icon(
-          Icons.account_balance_wallet_outlined,
-          size: 20,
-          color: _blue,
-        ),
-        title: const Text(
-          'Other ways to pay',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: _ink,
-          ),
-        ),
-        children: [
-          _payOption(
-            Icons.payments_outlined,
-            'Cash',
-            'Hand the amount to the agent in person. They will record it '
-                'straight away.',
-          ),
-          _payOption(
-            Icons.account_balance_outlined,
-            'Bank transfer',
-            bankNote.isNotEmpty
-                ? bankNote
-                : 'Ask the agent for the account number, then transfer the '
-                      'amount shown above.',
-          ),
-          _payOption(
-            Icons.smartphone_outlined,
-            'E-wallet (TNG)',
-            'Ask the agent for the DuitNow / TNG number and transfer the '
-                'amount shown above.',
-          ),
-          if (payee.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6, left: 4),
-              child: Text(
-                'Payee: $payee',
-                style: const TextStyle(fontSize: 12, color: _muted),
-              ),
-            ),
-          const Padding(
-            padding: EdgeInsets.only(top: 8, left: 4),
-            child: Text(
-              'Payments made this way are confirmed by the agent, so the '
-              'balance updates once they have checked the transfer.',
-              style: TextStyle(fontSize: 11.5, color: _muted, height: 1.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+    final account = bankNote.trim();
+    final holder = payee.trim();
+    if (account.isEmpty && holder.isEmpty) return const SizedBox.shrink();
 
-  Widget _payOption(IconData icon, String title, String detail) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: _blue),
+          const Icon(Icons.account_balance_outlined, size: 18, color: _blue),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
+                const Text(
+                  'Bank transfer',
+                  style: TextStyle(
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w700,
                     color: _ink,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
-                  detail,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _muted,
-                    height: 1.4,
+                  account.isEmpty
+                      ? 'Ask the agent for the account number.'
+                      : account,
+                  style: const TextStyle(fontSize: 12, color: _ink),
+                ),
+                if (holder.isNotEmpty)
+                  Text(
+                    'Payee: $holder',
+                    style: const TextStyle(fontSize: 11.5, color: _muted),
                   ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Use the bill number above as the transfer reference, so the '
+                  'agent can match the money to this bill.',
+                  style: TextStyle(fontSize: 11, color: _muted, height: 1.4),
                 ),
               ],
             ),

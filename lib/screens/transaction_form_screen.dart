@@ -45,6 +45,13 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   /// A name the scanner read off a bill that has no customer profile yet. The
   /// form never stores it: the agent creates the profile first.
   String? _unknownScannedCustomer;
+
+  /// Evidence for the money collected at the counter when the sale is saved as
+  /// already paid. A paid bill without proof of payment is a claim, not a
+  /// record.
+  String? _paymentProof;
+  bool _uploadingProof = false;
+  bool _paymentProofMissing = false;
   late final TextEditingController _item;
   late final TextEditingController _total;
   late final TextEditingController _advance;
@@ -433,6 +440,39 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
   }
 
   void _removeBill() => setState(() => _receiptPath = null);
+
+  /// The proof of payment for a sale that is collected immediately. Cash needs a
+  /// photograph of the note or the signed bill; a transfer needs a screenshot.
+  Future<void> _attachPaymentProof(ImageSource source) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 60,
+        maxWidth: 900,
+      );
+      if (picked == null) return;
+      if (!mounted) return;
+      setState(() => _uploadingProof = true);
+
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _paymentProof = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        _uploadingProof = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _uploadingProof = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not attach the payment proof: $error'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+    }
+  }
+
+  void _removePaymentProof() => setState(() => _paymentProof = null);
 
   @override
   void dispose() {
@@ -893,6 +933,101 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
                   ],
                 ),
               ),
+
+              // A sale collected in full needs proof of the money, for the same
+              // reason a credit sale needs the bill: without it the payment
+              // history is an assertion nobody can check.
+              if (_status == PaymentStatus.paid && widget.transaction == null) ...[
+                const SizedBox(height: 20),
+                const _SectionLabel(
+                  icon: Icons.verified_outlined,
+                  title: 'Payment evidence',
+                ),
+                AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Required — attach the receipt, the signed bill or the '
+                        'transfer screenshot for the money you just collected.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: mutedColor,
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_uploadingProof)
+                        const Center(child: CircularProgressIndicator())
+                      else if (_paymentProof == null) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _attachPaymentProof(ImageSource.camera),
+                                icon: const Icon(Icons.camera_alt_outlined,
+                                    size: 18),
+                                label: const Text('Camera'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _attachPaymentProof(ImageSource.gallery),
+                                icon: const Icon(Icons.photo_library_outlined,
+                                    size: 18),
+                                label: const Text('Gallery'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_paymentProofMissing)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              'Attach the payment proof before saving a paid '
+                              'sale.',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: AppColors.red,
+                              ),
+                            ),
+                          ),
+                      ] else
+                        Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.memory(
+                                base64Decode(
+                                  _paymentProof!.split(',').last,
+                                ),
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'Payment proof attached.',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Remove',
+                              onPressed: _removePaymentProof,
+                              icon: Icon(Icons.close_rounded,
+                                  size: 18, color: mutedColor),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               const _SectionLabel(
                 icon: Icons.event_outlined,
@@ -1209,6 +1344,23 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
       return;
     }
 
+    // A paid sale must carry the proof of the money, not just a status.
+    if (_status == PaymentStatus.paid &&
+        widget.transaction == null &&
+        _paymentProof == null) {
+      setState(() => _paymentProofMissing = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Attach the payment evidence: a receipt, the signed bill or the '
+            'transfer screenshot.',
+          ),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+
     final total = _amount(_total.text)!;
     final advance = _effectiveAdvance;
     final now = DateTime.now();
@@ -1248,7 +1400,10 @@ class _TransactionFormScreenState extends ConsumerState<TransactionFormScreen> {
               transaction: transaction,
               amount: advance,
               method: PaymentMethod.cash,
-              note: 'Advance paid at sale',
+              note: advance >= total
+                  ? 'Paid in full at sale'
+                  : 'Advance paid at sale',
+              proofImage: _paymentProof,
             );
       }
       if (!mounted) return;

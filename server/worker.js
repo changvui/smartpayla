@@ -299,21 +299,33 @@ function stripeKey(env) {
   return String(env.STRIPE_SECRET_KEY ?? "").trim();
 }
 
-async function stripeRequest(env, path, form) {
+async function stripeRequest(env, path, form, method = "POST") {
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(form)) body.append(key, value);
-  const response = await fetchWithTimeout(
-    `${STRIPE_API}${path}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${stripeKey(env)}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      `${STRIPE_API}${path}`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${stripeKey(env)}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: method === "GET" ? undefined : body.toString(),
       },
-      body: body.toString(),
-    },
-    25_000,
-  );
+      25_000,
+    );
+  } catch (error) {
+    // A failed subrequest used to surface as an empty 502 with no clue why.
+    return {
+      ok: false,
+      status: 0,
+      data: { error: { message: `subrequest failed: ${String(error)}` } },
+    };
+  }
+
   const text = await response.text();
   let data = {};
   try {
@@ -394,6 +406,21 @@ async function handlePayCreate(request, env, origin) {
   );
 }
 
+/// Reports whether the secret is present, without revealing it. Used while
+/// wiring the gateway up: 200 means the Worker can see a key at all.
+async function handlePayHealth(env, origin) {
+  const key = stripeKey(env);
+  return json(
+    {
+      configured: key.length > 0,
+      prefix: key.length >= 8 ? `${key.slice(0, 8)}…` : "",
+      mode: key.startsWith("sk_test_") ? "test" : key.startsWith("sk_live_") ? "live" : "unknown",
+    },
+    200,
+    origin,
+  );
+}
+
 /// Reports whether a session was paid, how much, and with which method.
 async function handlePayVerify(request, env, origin) {
   if (!stripeKey(env)) {
@@ -416,6 +443,7 @@ async function handlePayVerify(request, env, origin) {
     env,
     `/checkout/sessions/${encodeURIComponent(sessionId)}`,
     {},
+    "GET",
   );
   if (!result.ok) {
     return json({ error: `Stripe ${result.status}` }, 502, origin);
@@ -768,6 +796,7 @@ export default {
 
     const isScan = path.endsWith("/scan");
     const isChat = path.endsWith("/chat");
+    const isPayHealth = path.endsWith("/pay/health");
     const isPayCreate = path.endsWith("/pay/create");
     const isPayVerify = path.endsWith("/pay/verify");
     const maxLength = isScan ? MAX_SCAN_BASE64 + 100_000 : MAX_BODY_BYTES;
@@ -778,6 +807,7 @@ export default {
     }
 
     if (!allowed) return new Response("Forbidden origin", { status: 403 });
+    if (isPayHealth) return handlePayHealth(env, origin);
     if (request.method !== "POST") {
       return json({ error: "Method not allowed" }, 405, origin);
     }
@@ -789,6 +819,7 @@ export default {
 
     if (isScan) return handleScan(request, env, origin);
     if (isChat) return handleChat(request, env, origin);
+    if (isPayHealth) return handlePayHealth(env, origin);
     if (isPayCreate) return handlePayCreate(request, env, origin);
     if (isPayVerify) return handlePayVerify(request, env, origin);
     return handleReminder(request, env, origin);

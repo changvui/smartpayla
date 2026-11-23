@@ -1135,6 +1135,15 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     // If that call fails the simulated page below still runs, so a demo never
     // dead-ends on the network.
     if (PaymentGateway.isConfigured) {
+      // Opened here, synchronously, while the click still counts as a gesture.
+      // Creating the session takes a round trip, and `window.open` after an
+      // await is blocked by the browser.
+      final tab = prepareCheckoutTab();
+
+      // Point the current history entry at the statement, so a same-tab
+      // fallback cannot leave the app (or its login screen) one Back away.
+      ensureStatementUrl(widget.token);
+
       final session = await PaymentGateway().create(
         token: widget.token,
         amount: totalBalance,
@@ -1143,11 +1152,14 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         returnUrl: _returnUrlBase(),
       );
       if (session != null) {
-        final left = await navigateTo(session.url);
+        final opened = loadInCheckoutTab(tab, session.url) ||
+            await navigateTo(session.url);
         if (!mounted) return;
-        setState(() => _sending = left);
+        setState(() => _sending = opened);
         return;
       }
+      // No session: the prepared tab is not needed and will be closed by the
+      // browser when it stays on about:blank.
     }
 
     if (!mounted) return;

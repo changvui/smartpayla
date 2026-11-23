@@ -25,3 +25,9 @@ void ensureStatementUrl(String token) {}
 
 /// Native builds stay on the statement; there is no tab to close.
 void closeCurrentTab() {}
+
+/// Native builds are never a popup window.
+bool wasOpenedAsPopup() => false;
+
+/// Native builds have no tab to close; the back gesture returns to the app.
+void cancelAndCloseTab() {}

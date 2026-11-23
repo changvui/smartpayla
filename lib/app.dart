@@ -7,6 +7,7 @@ import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
 import 'services/session_policy.dart';
 import 'utils/back_guard.dart';
+import 'utils/navigate_url.dart';
 import 'utils/payment_bridge.dart';
 import 'state/auth_provider.dart';
 import 'services/gateway_autoconfirm.dart';
@@ -68,6 +69,19 @@ class _CustomerVisitState extends State<CustomerVisit> {
     _stopListening = listenPaymentConfirmed(widget.token, () {
       if (mounted) setState(() => _reloadKey++);
     });
+
+    // A tab we opened that came back without `paid=1` is a cancelled checkout.
+    // Close it, so the customer is not left on an empty tab; the statement in
+    // the original window never changed.
+    final params = Uri.base.queryParameters;
+    final cancelled = params['paid'] != '1' && (params['session_id'] ?? '').isEmpty;
+    if (cancelled && wasOpenedAsPopup()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future<void>.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) cancelAndCloseTab();
+        });
+      });
+    }
   }
 
   @override

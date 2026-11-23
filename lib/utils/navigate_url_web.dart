@@ -67,3 +67,29 @@ void closeCurrentTab() {
     // Some browsers refuse; the page then stays on "payment confirmed".
   }
 }
+
+/// True when this window was opened by script (window.open), which is how the
+/// checkout tab is created. A tab that was opened by us may also be closed by us.
+bool wasOpenedAsPopup() {
+  try {
+    return web.window.opener != null;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Sends the tab back to the page that opened it and closes it, used when the
+/// customer cancels. `history.back` first, so a browser that refuses to close a
+/// tab still shows something sensible instead of a blank page.
+void cancelAndCloseTab() {
+  try {
+    if (web.window.history.length > 1) web.window.history.back();
+  } catch (_) {
+    // Ignore: closing below is what matters.
+  }
+  try {
+    web.window.close();
+  } catch (_) {
+    // Staying on the statement is an acceptable outcome.
+  }
+}

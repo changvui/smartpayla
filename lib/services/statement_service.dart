@@ -188,9 +188,13 @@ class StatementService {
     String? reconCode,
     List<String>? billIds,
     List<String>? billLabels,
-    /// Set by the demo gateway. A gateway payment arrives already verified, so
-    /// the agent should not have to confirm it a second time.
+    /// Set by the demo gateway, and used only to label the receipt.
     bool simulated = false,
+
+    /// A payment a gateway already verified. The agent does not approve it a
+    /// second time, so the claim is written with `autoConfirm` and the agent
+    /// client turns it into a payment entry by itself.
+    bool autoConfirm = false,
   }) async {
     if (!FirebaseRuntime.initialized) return false;
     // The customer is anonymous, so the claim is owned by the agent named in the
@@ -212,7 +216,7 @@ class StatementService {
       'billCount': (billIds ?? const <String>[]).length,
       'status': 'pending',
       'simulated': simulated,
-      'autoConfirm': simulated,
+      'autoConfirm': autoConfirm,
       'declaredAt': DateTime.now().toIso8601String(),
     });
     return true;

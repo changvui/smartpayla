@@ -1190,6 +1190,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         billIds: _selected.toList(),
         billLabels: const [],
         simulated: true,
+        autoConfirm: true,
       );
       if (!sent) {
         throw StateError('This link has no owner. Ask for a new link.');
@@ -1267,6 +1268,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         billIds: _selected.toList(),
         billLabels: const [],
         simulated: false,
+        autoConfirm: true,
       );
       if (!sent) {
         throw StateError('This link has no owner. Ask for a new link.');

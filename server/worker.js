@@ -371,6 +371,13 @@ async function handlePayCreate(request, env, origin) {
   const successUrl =
     `${returnBase}${separator}s=${encodeURIComponent(token)}` +
     "&paid=1&popup=1&session_id={CHECKOUT_SESSION_ID}";
+
+  // Stripe renders a "Back" arrow only when `cancel_url` is set. That arrow
+  // leaves the hosted page and lands on whatever the tab had before, which for a
+  // customer on a borrowed phone is the agent's login screen. The checkout runs
+  // in its own tab, so cancelling means closing the tab; leaving cancel_url out
+  // removes the arrow entirely. Set STRIPE_SHOW_CANCEL=true to bring it back.
+  const showCancel = String(env.STRIPE_SHOW_CANCEL ?? "").toLowerCase() === "true";
   const cancelUrl = `${returnBase}${separator}s=${encodeURIComponent(token)}`;
 
   // Stripe removed `payment_method_types` from Checkout Sessions; a session is
@@ -386,7 +393,6 @@ async function handlePayCreate(request, env, origin) {
   const form = {
     mode: "payment",
     success_url: successUrl,
-    cancel_url: cancelUrl,
     locale: "en",
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "myr",
@@ -394,6 +400,7 @@ async function handlePayCreate(request, env, origin) {
     "line_items[0][price_data][product_data][name]": description,
     "metadata[statement_token]": token,
   };
+  if (showCancel) form.cancel_url = cancelUrl;
   allowed.forEach((method, index) => {
     form[`allowed_payment_method_types[${index}]`] = method;
   });

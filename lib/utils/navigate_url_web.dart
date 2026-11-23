@@ -1,11 +1,22 @@
 import 'package:web/web.dart' as web;
 
-/// Leaves the app and loads [url] in the same tab.
+/// Opens the checkout in a new tab instead of replacing the current page.
 ///
-/// A checkout must replace the merchant page, not open a second tab: the
-/// provider's success URL comes back to the statement, and that only works if
-/// the statement was the page that navigated away.
+/// A same-tab navigation destroys the page it came from: if the statement was
+/// being previewed inside the application, the browser's Back button then
+/// returns to the agent dashboard, which is exactly what a customer must never
+/// see. A new tab starts with an empty history, so Back there has nowhere to go;
+/// Stripe's success URL brings that tab back to the statement.
+///
+/// A blocked popup falls back to the same tab, because a checkout the customer
+/// cannot open is worse than a Back button that needs care.
 Future<bool> navigateTo(String url) async {
+  try {
+    final opened = web.window.open(url, '_blank');
+    if (opened != null) return true;
+  } catch (_) {
+    // Fall through to the same-tab navigation.
+  }
   try {
     web.window.location.href = url;
     return true;

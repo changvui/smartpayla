@@ -366,7 +366,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             const SizedBox(height: 10),
           ],
           const SizedBox(height: 12),
-          _paymentSection(
+          if (!PaymentGateway.isConfigured)
+            _paymentSection(
             totalBalance: selectedTotal,
             qr: qr,
             bankNote: bankNote,
@@ -376,7 +377,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           ),
           if (_showReturnPrompt && !_declared) ...[
             const SizedBox(height: 12),
-            _returnPrompt(selectedTotal),
+            if (!PaymentGateway.isConfigured) _returnPrompt(selectedTotal),
           ],
           if (_lastError != null) ...[
             const SizedBox(height: 12),
@@ -1697,14 +1698,17 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            'Demo gateway - the payment is confirmed automatically, without '
-            'waiting for the agent.',
+            PaymentGateway.isConfigured
+                ? 'Card or FPX. The payment is confirmed automatically - no '
+                      'waiting for the agent.'
+                : 'Demo gateway - the payment is confirmed automatically, '
+                      'without waiting for the agent.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 10.5, color: _muted, height: 1.3),
           ),
           const SizedBox(height: 10),
         ],
-        if (!_declared)
+        if (!_declared && !PaymentGateway.isConfigured)
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(

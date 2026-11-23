@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../services/statement_service.dart';
+import 'checkout_screen.dart';
 import '../utils/whatsapp.dart';
 import '../widgets/payment_actions.dart';
 import 'qr_fullscreen_screen.dart';
@@ -1113,115 +1114,29 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
 
   /// Shown after the declaration is stored, so the customer knows the agent
   /// still has to confirm it against the bank statement.
-  /// The demo gateway checkout.
+  /// Opens the hosted checkout page, then records the payment it approved.
   ///
-  /// It stands in for the redirect to a hosted checkout page: same shape (open,
-  /// confirm, return to the statement), but the payment is simulated and is
-  /// written with `autoConfirm`, so the agent never approves the same money
-  /// twice. Replacing this with a real provider means replacing this method with
-  /// a redirect and letting the provider's webhook write the payment.
+  /// This is the shape of a real integration: the customer leaves the merchant
+  /// page, pays on the provider's page, and comes back. Here the provider page
+  /// is part of the same app - it looks and reads like a separate checkout, and
+  /// the address bar changes on the web - but nothing is charged.
   Future<void> _payNowDialog(double totalBalance) async {
     final data = _data ?? const <String, dynamic>{};
-    final method = ValueNotifier<String>('DuitNow');
 
-    final confirmed = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Demo checkout',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                "Simulated payment - no money leaves any account. The agent's "
-                'ledger is updated automatically.',
-                style: TextStyle(fontSize: 11.5, color: _muted, height: 1.4),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _border),
-                ),
-                child: Row(
-                  children: [
-                    Text('Total', style: TextStyle(fontSize: 12.5, color: _muted)),
-                    const Spacer(),
-                    Text(
-                      'RM ${totalBalance.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: _ink,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                'Method',
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              ValueListenableBuilder<String>(
-                valueListenable: method,
-                builder: (context, value, _) => Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final option in ['DuitNow', 'Card', 'Online banking'])
-                      ChoiceChip(
-                        label: Text(option, style: const TextStyle(fontSize: 11.5)),
-                        selected: value == option,
-                        onSelected: (_) => method.value = option,
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(sheetContext).pop(true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _blue,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: Text(
-                    'Pay RM ${totalBalance.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(sheetContext).pop(false),
-                child: const Text('Cancel'),
-              ),
-            ],
-          ),
-        );
-      },
+    final outcome = await Navigator.of(context).push<CheckoutOutcome>(
+      MaterialPageRoute<CheckoutOutcome>(
+        fullscreenDialog: true,
+        builder: (_) => CheckoutScreen(
+          token: widget.token,
+          merchantName: (data['shopName'] ?? '').toString(),
+          customerName: (data['customerName'] ?? '').toString(),
+          amount: totalBalance,
+          reference: (data['reconCode'] ?? '').toString(),
+        ),
+      ),
     );
+    if (outcome == null || !outcome.paid || !mounted) return;
 
-    if (confirmed != true || !mounted) return;
     setState(() => _sending = true);
     try {
       final sent = await _service.declarePayment(
@@ -1229,7 +1144,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         ownerUid: (data['ownerUid'] ?? '').toString(),
         customerName: (data['customerName'] ?? '').toString(),
         amount: totalBalance,
-        note: 'Paid through the demo gateway (${method.value})',
+        note: 'Paid through the demo gateway (${outcome.method})',
         proofImage: null,
         reconCode: (data['reconCode'] ?? '').toString(),
         billIds: _selected.toList(),
@@ -1247,7 +1162,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Payment sent - confirming automatically.'),
+          content: Text('Payment approved - the agent ledger updates itself.'),
           backgroundColor: _green,
         ),
       );

@@ -5,6 +5,8 @@ import 'data/firebase_config.dart';
 import 'screens/customer_statement_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
+import 'services/session_policy.dart';
+import 'utils/back_guard.dart';
 import 'state/auth_provider.dart';
 import 'services/gateway_autoconfirm.dart';
 import 'state/providers.dart';
@@ -30,8 +32,44 @@ class SmartPayLaApp extends ConsumerWidget {
       
       home: statementToken == null || statementToken.isEmpty
           ? const AuthGate()
-          : CustomerStatementScreen(token: statementToken),
+          : CustomerVisit(token: statementToken),
     );
+  }
+}
+
+/// The customer's visit: the statement only, with the agent session cleared
+/// and the browser's Back button absorbed.
+///
+/// A statement link is opened on a shared or borrowed phone as often as on the
+/// customer's own. Two things follow from that: the device must not stay signed
+/// in as the agent, and Back must not walk into the agent dashboard that was
+/// open before.
+class CustomerVisit extends StatefulWidget {
+  const CustomerVisit({super.key, required this.token});
+
+  final String token;
+
+  @override
+  State<CustomerVisit> createState() => _CustomerVisitState();
+}
+
+class _CustomerVisitState extends State<CustomerVisit> {
+  @override
+  void initState() {
+    super.initState();
+    installCustomerBackGuard();
+    signOutForCustomerVisit();
+  }
+
+  @override
+  void dispose() {
+    removeCustomerBackGuard();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomerStatementScreen(token: widget.token);
   }
 }
 

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'data/firebase_config.dart';
 import 'data/transaction_repository.dart';
+import 'services/session_policy.dart';
 import 'state/providers.dart';
 
 Future<void> main() async {
@@ -61,6 +62,13 @@ Future<void> main() async {
   // For demos and screenshots:
   // flutter run -d chrome --dart-define=DEMO=true
   // It only seeds when the local ledger is empty.
+  // A customer link must not leave the device signed in, and closing the
+  // browser on the web must end the agent's session.
+  await configureAuthPersistence();
+  if (isCustomerVisit) {
+    await signOutForCustomerVisit();
+  }
+
   const demoMode = bool.fromEnvironment('DEMO');
   if (demoMode) {
     await LocalTransactionRepository(prefs).seedDemo();

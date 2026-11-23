@@ -5,6 +5,7 @@ import 'data/firebase_config.dart';
 import 'screens/customer_statement_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
+import 'services/payment_gateway.dart';
 import 'services/session_policy.dart';
 import 'utils/back_guard.dart';
 import 'utils/navigate_url.dart';
@@ -61,9 +62,16 @@ class SmartPayLaApp extends ConsumerWidget {
       
       home: statementToken != null && statementToken.isNotEmpty
           ? CustomerVisit(token: statementToken)
-          : returningFromGateway
-              ? const _GatewayReturnNotice()
-              : const AuthGate(),
+          : params['session_id'] != null && params['session_id']!.isNotEmpty
+              // The redirect lost the token but kept the session: ask the gateway
+              // which statement that session was created for.
+              ? _GatewayTokenResolver(
+                  sessionId: params['session_id']!,
+                  fallback: returningFromGateway,
+                )
+              : returningFromGateway
+                  ? const _GatewayReturnNotice()
+                  : const AuthGate(),
     );
   }
 }
@@ -75,6 +83,59 @@ class SmartPayLaApp extends ConsumerWidget {
 /// customer's own. Two things follow from that: the device must not stay signed
 /// in as the agent, and Back must not walk into the agent dashboard that was
 /// open before.
+/// Recovers the statement token from the gateway when the redirect dropped it.
+///
+/// Stripe echoes `client_reference_id` on the session, so the Worker can report
+/// which statement was paid for even if no query survived the redirect.
+class _GatewayTokenResolver extends ConsumerStatefulWidget {
+  const _GatewayTokenResolver({
+    required this.sessionId,
+    required this.fallback,
+  });
+
+  final String sessionId;
+  final bool fallback;
+
+  @override
+  ConsumerState<_GatewayTokenResolver> createState() =>
+      _GatewayTokenResolverState();
+}
+
+class _GatewayTokenResolverState
+    extends ConsumerState<_GatewayTokenResolver> {
+  String? _token;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  Future<void> _resolve() async {
+    final payment = await PaymentGateway().verify(widget.sessionId);
+    if (!mounted) return;
+    final token = payment?.token ?? '';
+    setState(() {
+      _token = token.isEmpty ? null : token;
+      _failed = token.isEmpty;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final token = _token;
+    if (token != null) return CustomerVisit(token: token);
+    if (!_failed) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F8FE),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return const _GatewayReturnNotice();
+  }
+}
+
 /// Shown when a provider redirect arrives without the statement token.
 ///
 /// The payment itself is unaffected: the gateway tab has nothing to display, so

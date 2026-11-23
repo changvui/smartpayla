@@ -399,6 +399,9 @@ async function handlePayCreate(request, env, origin) {
     "line_items[0][price_data][unit_amount]": String(cents),
     "line_items[0][price_data][product_data][name]": description,
     "metadata[statement_token]": token,
+    // Stripe echoes this back on the session, so a redirect that loses the query
+    // can still be tied to the statement it belongs to.
+    client_reference_id: token,
   };
   if (showCancel) form.cancel_url = cancelUrl;
   allowed.forEach((method, index) => {
@@ -483,6 +486,7 @@ async function handlePayVerify(request, env, origin) {
       amount: (Number(session.amount_total) || 0) / 100,
       currency: session.currency || "myr",
       method: methods.includes("fpx") ? "FPX" : "Card",
+      token: session.client_reference_id || "",
       reference: session.payment_intent
         ? String(session.payment_intent).slice(-12).toUpperCase()
         : sessionId.slice(-12).toUpperCase(),

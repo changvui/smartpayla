@@ -22,12 +22,16 @@ class GatewayPayment {
     required this.amount,
     required this.method,
     required this.reference,
+    this.token,
   });
 
   final bool paid;
   final double amount;
   final String method;
   final String reference;
+
+  /// The statement token the session was created for, echoed by the gateway.
+  final String? token;
 }
 
 /// Stripe Checkout, through the Worker.
@@ -98,6 +102,7 @@ class PaymentGateway {
         amount: (data['amount'] as num?)?.toDouble() ?? 0,
         method: (data['method'] ?? 'Card').toString(),
         reference: (data['reference'] ?? '').toString(),
+        token: (data['token'] ?? '').toString(),
       );
     } catch (_) {
       return null;

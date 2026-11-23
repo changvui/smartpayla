@@ -8,6 +8,7 @@ import '../services/payment_gateway.dart';
 import '../services/statement_service.dart';
 import '../utils/checkout_url.dart';
 import '../utils/navigate_url.dart';
+import '../utils/pending_payment.dart';
 import '../utils/pending_token.dart';
 import '../utils/payment_bridge.dart';
 import 'checkout_screen.dart';
@@ -73,6 +74,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// statement is a snapshot that only the agent can rewrite, so the page shows
   /// the payment immediately and lets the snapshot catch up.
   double _paidNow = 0;
+
+  /// The published total, before anything the gateway confirmed locally.
+  double get _snapshotTotal =>
+      (_data?['totalBalance'] as num?)?.toDouble() ?? 0;
 
   /// Last gateway verification result, shown while a payment is being applied.
   String? _gatewayNote;
@@ -230,6 +235,21 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _selected.add((bills.first['id'] ?? '').toString());
       }
     }
+    // A gateway payment survives a reload: the snapshot is only rewritten when
+    // the agent confirms, and the customer must not see the balance bounce back
+    // in the meantime. Once the snapshot has caught up, the local record is
+    // dropped so nothing is subtracted twice.
+    if (_paidNow == 0) {
+      final pending = readPendingPayment(widget.token);
+      if (pending != null) {
+        if (snapshotTotal <= pending.expectedTotal + 0.01) {
+          clearPendingPayment(widget.token);
+        } else {
+          _paidNow = pending.amount;
+        }
+      }
+    }
+
     // Subtract what the gateway just confirmed, oldest bill first - the same
     // order the ledger uses - so the page agrees with the money that has left.
     if (_paidNow > 0) {
@@ -1322,6 +1342,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _sending = false;
         _paidNow = totalBalance;
       });
+      rememberPendingPayment(
+        token: widget.token,
+        amount: totalBalance,
+        expectedTotal: (_snapshotTotal - totalBalance).clamp(0, _snapshotTotal),
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Payment approved - the agent ledger updates itself.'),
@@ -1424,6 +1449,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _gatewayDeclared = true;
         _sending = false;
         _paidNow = payment.amount > 0 ? payment.amount : _paidNow;
+        rememberPendingPayment(
+          token: widget.token,
+          amount: _paidNow,
+          expectedTotal: (_snapshotTotal - _paidNow).clamp(0, _snapshotTotal),
+        );
         _gatewayNote =
             'Verified ${payment.method} · RM ${payment.amount.toStringAsFixed(2)}'
             ' · ${payment.reference}';

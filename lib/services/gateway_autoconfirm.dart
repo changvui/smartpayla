@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/providers.dart';
+import 'payment_receipt.dart';
 
 /// Confirms payments that a gateway already verified.
 ///
@@ -38,10 +39,37 @@ class GatewayAutoConfirm extends Notifier<void> {
           ref.read(transactionsProvider).valueOrNull ?? const [];
       final payments = ref.read(paymentServiceProvider);
       final owner = ref.read(dataOwnerProvider);
+
+      // A gateway leaves a receipt behind; without one the agent's payment
+      // history would have a blank evidence slot for every automatic payment.
+      Map<String, dynamic> enriched = claim;
+      if ((claim['proofImage'] ?? '').toString().isEmpty) {
+        try {
+          final settings = ref.read(settingsProvider);
+          final receipt = await PaymentReceipt.gatewayReceipt(
+            shopName: settings.shopName,
+            customerName: (claim['customerName'] ?? '').toString(),
+            amount: (claim['amount'] as num?)?.toDouble() ?? 0,
+            method: (claim['note'] ?? '').toString().contains('Card')
+                ? 'Card'
+                : 'DuitNow',
+            reference: (claim['reconCode'] ?? claim['token'] ?? '').toString(),
+            paidAt: DateTime.tryParse(
+                  (claim['declaredAt'] ?? '').toString(),
+                ) ??
+                DateTime.now(),
+            simulated: claim['simulated'] != false,
+          );
+          enriched = {...claim, 'proofImage': receipt};
+        } catch (error) {
+          debugPrint('Receipt render failed: $error');
+        }
+      }
+
       final ok = await payments.confirmClaim(
         ownerUid: owner,
         transactions: transactions,
-        claim: claim,
+        claim: enriched,
       );
       if (!ok) return;
       // The ledger changed underneath the transaction list; reload so the

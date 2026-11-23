@@ -59,6 +59,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     with WidgetsBindingObserver {
   late Future<Map<String, dynamic>?> _future;
   bool _declared = false;
+  Map<String, dynamic>? _data;
+  bool _gatewayDeclared = false;
   bool _sending = false;
   String? _lastError;
 
@@ -183,6 +185,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   }
 
   Widget _statement(Map<String, dynamic> data) {
+    _data = data;
     final shop = (data['shopName'] ?? 'SmartPayLA').toString();
     final customer = (data['customerName'] ?? '').toString();
     final totalBalance = (data['totalBalance'] as num?)?.toDouble() ?? 0;
@@ -1110,6 +1113,153 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
 
   /// Shown after the declaration is stored, so the customer knows the agent
   /// still has to confirm it against the bank statement.
+  /// The demo gateway checkout.
+  ///
+  /// It stands in for the redirect to a hosted checkout page: same shape (open,
+  /// confirm, return to the statement), but the payment is simulated and is
+  /// written with `autoConfirm`, so the agent never approves the same money
+  /// twice. Replacing this with a real provider means replacing this method with
+  /// a redirect and letting the provider's webhook write the payment.
+  Future<void> _payNowDialog(double totalBalance) async {
+    final data = _data ?? const <String, dynamic>{};
+    final method = ValueNotifier<String>('DuitNow');
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Demo checkout',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "Simulated payment - no money leaves any account. The agent's "
+                'ledger is updated automatically.',
+                style: TextStyle(fontSize: 11.5, color: _muted, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: _border),
+                ),
+                child: Row(
+                  children: [
+                    Text('Total', style: TextStyle(fontSize: 12.5, color: _muted)),
+                    const Spacer(),
+                    Text(
+                      'RM ${totalBalance.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: _ink,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Method',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              ValueListenableBuilder<String>(
+                valueListenable: method,
+                builder: (context, value, _) => Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final option in ['DuitNow', 'Card', 'Online banking'])
+                      ChoiceChip(
+                        label: Text(option, style: const TextStyle(fontSize: 11.5)),
+                        selected: value == option,
+                        onSelected: (_) => method.value = option,
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(true),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _blue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    'Pay RM ${totalBalance.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(sheetContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      final sent = await _service.declarePayment(
+        token: widget.token,
+        ownerUid: (data['ownerUid'] ?? '').toString(),
+        customerName: (data['customerName'] ?? '').toString(),
+        amount: totalBalance,
+        note: 'Paid through the demo gateway (${method.value})',
+        proofImage: null,
+        reconCode: (data['reconCode'] ?? '').toString(),
+        billIds: _selected.toList(),
+        billLabels: const [],
+        simulated: true,
+      );
+      if (!sent) {
+        throw StateError('This link has no owner. Ask for a new link.');
+      }
+      if (!mounted) return;
+      setState(() {
+        _declared = true;
+        _gatewayDeclared = true;
+        _sending = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment sent - confirming automatically.'),
+          backgroundColor: _green,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Payment failed: $error')),
+      );
+    }
+  }
+
   Widget _declaredCard() {
     return Container(
       width: double.infinity,
@@ -1123,13 +1273,13 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         children: [
           const Icon(Icons.check_circle_rounded, color: _green, size: 24),
           const SizedBox(width: 12),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Payment declared',
-                  style: TextStyle(
+                  _gatewayDeclared ? 'Payment confirmed' : 'Payment declared',
+                  style: const TextStyle(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w800,
                     color: _green,
@@ -1203,6 +1353,35 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     return Column(
       children: [
         if (_declared) _declaredCard(),
+        if (!_declared) ...[
+          // Demo gateway: one tap, and the agent's ledger updates itself.
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _sending ? null : () => _payNowDialog(totalBalance),
+              style: FilledButton.styleFrom(
+                backgroundColor: _blue,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              icon: const Icon(Icons.credit_card_rounded, size: 18),
+              label: Text(
+                'Pay now · RM ${totalBalance.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Demo gateway - the payment is confirmed automatically, without '
+            'waiting for the agent.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 10.5, color: _muted, height: 1.3),
+          ),
+          const SizedBox(height: 10),
+        ],
         if (!_declared)
         SizedBox(
           width: double.infinity,

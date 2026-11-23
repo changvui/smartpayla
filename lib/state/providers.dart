@@ -135,6 +135,10 @@ class TransactionsNotifier extends AsyncNotifier<List<Transaction>> {
     if (removed != null) unawaited(_syncStatement(removed.customerName));
   }
 
+  /// Public wrapper used by the gateway auto-confirm path.
+  Future<void> syncStatementFor(String customerName) =>
+      _syncStatement(customerName);
+
   /// Refreshes the public statement for one customer, ignoring failures: a
   /// statement that cannot be refreshed must never block saving a bill.
   Future<void> _syncStatement(String customerName) async {

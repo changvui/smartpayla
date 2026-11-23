@@ -6,6 +6,7 @@ import 'screens/customer_statement_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
 import 'state/auth_provider.dart';
+import 'services/gateway_autoconfirm.dart';
 import 'state/providers.dart';
 import 'theme.dart';
 
@@ -46,6 +47,10 @@ class AuthGate extends ConsumerWidget {
     if (const bool.fromEnvironment('SKIP_LOGIN')) {
       return const HomeShell();
     }
+
+    // Confirms payments a gateway already verified, so the agent does not
+    // approve the same money twice. Inert until such a claim exists.
+    ref.watch(gatewayAutoConfirmProvider);
 
     final authState = ref.watch(authStateProvider);
 

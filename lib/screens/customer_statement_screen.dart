@@ -73,6 +73,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// statement is a snapshot that only the agent can rewrite, so the page shows
   /// the payment immediately and lets the snapshot catch up.
   double _paidNow = 0;
+
+  /// Last gateway verification result, shown while a payment is being applied.
+  String? _gatewayNote;
+  bool _gatewayNoteBad = false;
   bool _sending = false;
   String? _lastError;
 
@@ -296,6 +300,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           _paidBanner(_paidNow),
           const SizedBox(height: 12),
         ],
+        if (_gatewayNote != null) ...[
+          _gatewayStrip(_gatewayNote!, _gatewayNoteBad),
+          const SizedBox(height: 12),
+        ],
         _balanceCard(totalBalance, bills.length),
         const SizedBox(height: 24),
         if (bills.isEmpty)
@@ -418,6 +426,40 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                   style: TextStyle(fontSize: 11, color: _muted, height: 1.35),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A one-line trace of what the gateway verification did. Kept visible during
+  /// the prototype, so a failed return can be diagnosed without the console.
+  Widget _gatewayStrip(String note, bool bad) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: bad ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: bad ? _red : _border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            bad ? Icons.error_outline_rounded : Icons.verified_rounded,
+            size: 14,
+            color: bad ? _red : _muted,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              note,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: bad ? _red : _muted,
+                height: 1.3,
+              ),
             ),
           ),
         ],
@@ -1314,17 +1356,36 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// only recorded after the Worker has asked Stripe whether that session was
   /// really paid - the query string alone is not evidence.
   Future<void> _handleGatewayReturn(Map<String, dynamic> data) async {
-    if (_gatewayHandled || !PaymentGateway.isConfigured) return;
+    if (_gatewayHandled) return;
     final params = Uri.base.queryParameters;
-    if (params['paid'] != '1') return;
+    if (params['paid'] != '1' && (params['session_id'] ?? '').isEmpty) return;
+    if (!PaymentGateway.isConfigured) {
+      setState(() {
+        _gatewayNote = 'This build has no gateway keys (STRIPE_CHECKOUT off).';
+        _gatewayNoteBad = true;
+      });
+      return;
+    }
     final sessionId = (params['session_id'] ?? '').trim();
-    if (sessionId.isEmpty) return;
+    if (sessionId.isEmpty) {
+      setState(() {
+        _gatewayNote = 'The return URL carried no session id.';
+        _gatewayNoteBad = true;
+      });
+      return;
+    }
 
     _gatewayHandled = true;
     final payment = await PaymentGateway().verify(sessionId);
     if (!mounted) return;
 
     if (payment == null || !payment.paid) {
+      setState(() {
+        _gatewayNote = payment == null
+            ? 'Could not reach the gateway to verify this payment.'
+            : 'The gateway reports "${payment.paid ? 'paid' : 'not paid'}".';
+        _gatewayNoteBad = true;
+      });
       clearPaymentParams(token: widget.token);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1363,6 +1424,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _gatewayDeclared = true;
         _sending = false;
         _paidNow = payment.amount > 0 ? payment.amount : _paidNow;
+        _gatewayNote =
+            'Verified ${payment.method} · RM ${payment.amount.toStringAsFixed(2)}'
+            ' · ${payment.reference}';
+        _gatewayNoteBad = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

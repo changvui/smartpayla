@@ -22,7 +22,13 @@ class SmartPayLaApp extends ConsumerWidget {
     final isDarkMode = ref.watch(themeModeProvider);
     // A customer opens a statement from WhatsApp: `?s=<token>` renders the
     // read-only page and never touches the sign-in flow.
-    final statementToken = Uri.base.queryParameters['s'];
+    final params = Uri.base.queryParameters;
+    final statementToken = params['s'];
+    // A gateway return without a token means the redirect lost it. Showing the
+    // login screen there would look like the payment failed and would expose the
+    // agent's sign-in page to a customer, so a neutral notice is shown instead.
+    final returningFromGateway =
+        params['paid'] == '1' || (params['session_id'] ?? '').isNotEmpty;
 
     return MaterialApp(
       title: 'SmartPayLA',
@@ -32,9 +38,11 @@ class SmartPayLaApp extends ConsumerWidget {
       darkTheme: buildDarkAppTheme(), // 👈 Use the new function here
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       
-      home: statementToken == null || statementToken.isEmpty
-          ? const AuthGate()
-          : CustomerVisit(token: statementToken),
+      home: statementToken != null && statementToken.isNotEmpty
+          ? CustomerVisit(token: statementToken)
+          : returningFromGateway
+              ? const _GatewayReturnNotice()
+              : const AuthGate(),
     );
   }
 }
@@ -46,6 +54,52 @@ class SmartPayLaApp extends ConsumerWidget {
 /// customer's own. Two things follow from that: the device must not stay signed
 /// in as the agent, and Back must not walk into the agent dashboard that was
 /// open before.
+/// Shown when a provider redirect arrives without the statement token.
+///
+/// The payment itself is unaffected: the gateway tab has nothing to display, so
+/// it says so and can be closed. It must never fall back to the sign-in screen.
+class _GatewayReturnNotice extends StatelessWidget {
+  const _GatewayReturnNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFFF5F8FE),
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle_outline_rounded,
+                size: 44,
+                color: Color(0xFF15803D),
+              ),
+              SizedBox(height: 14),
+              Text(
+                'Payment received',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Return to the statement tab to see the updated balance. '
+                'This window can be closed.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFF64748B),
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class CustomerVisit extends StatefulWidget {
   const CustomerVisit({super.key, required this.token});
 

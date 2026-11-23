@@ -421,6 +421,8 @@ async function handlePayCreate(request, env, origin) {
       url: result.data.url,
       amount: cents / 100,
       currency: "myr",
+      // Diagnostic only: confirms the redirect carries the statement token.
+      returnHasToken: successUrl.includes("s="),
     },
     200,
     origin,

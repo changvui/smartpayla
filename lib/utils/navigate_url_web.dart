@@ -93,3 +93,13 @@ void cancelAndCloseTab() {
     // Staying on the statement is an acceptable outcome.
   }
 }
+
+/// Closes a tab that this page opened. Script-opened tabs may be closed by their
+/// opener, which is how the checkout tab goes away once the payment is seen.
+void closeTabHandle(Object? tab) {
+  try {
+    (tab as web.Window?)?.close();
+  } catch (_) {
+    // The tab stays open; the customer can close it.
+  }
+}

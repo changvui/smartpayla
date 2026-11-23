@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -81,6 +82,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
 
   /// Last gateway verification result, shown while a payment is being applied.
   String? _gatewayNote;
+  Timer? _gatewayPoll;
+  Object? _checkoutTab;
   bool _gatewayNoteBad = false;
   bool _sending = false;
   String? _lastError;
@@ -108,6 +111,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
 
   @override
   void dispose() {
+    _gatewayPoll?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -414,6 +418,84 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// Shown the moment the gateway confirms, before the agent's ledger has been
   /// republished. "Updating" is honest: the snapshot is still the old one, and
   /// this page refreshes itself when the agent confirms.
+  /// Watches the session from this tab instead of trusting the redirect.
+  ///
+  /// A provider redirect can lose its query, be blocked, or land in a different
+  /// tab. Asking the Worker about the session we just created needs none of that:
+  /// the moment Stripe reports `paid`, this page records the payment.
+  void _startGatewayPoll(String sessionId, double amount) {
+    _gatewayPoll?.cancel();
+    var attempts = 0;
+    _gatewayPoll = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      attempts += 1;
+      if (attempts > 100 || !mounted) {
+        timer.cancel();
+        return;
+      }
+      final payment = await PaymentGateway().verify(sessionId);
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (payment == null || !payment.paid) return;
+
+      timer.cancel();
+      closeTabHandle(_checkoutTab);
+      await _applyGatewayPayment(payment, amount);
+    });
+  }
+
+  /// Writes the claim for a verified payment, once.
+  Future<void> _applyGatewayPayment(
+    GatewayPayment payment,
+    double fallbackAmount,
+  ) async {
+    if (_declared) return;
+    final data = _data ?? const <String, dynamic>{};
+    final amount = payment.amount > 0 ? payment.amount : fallbackAmount;
+    setState(() => _sending = true);
+    try {
+      final sent = await _service.declarePayment(
+        token: widget.token,
+        ownerUid: (data['ownerUid'] ?? '').toString(),
+        customerName: (data['customerName'] ?? '').toString(),
+        amount: amount,
+        note: 'Stripe ${payment.method} (${payment.reference})',
+        proofImage: null,
+        reconCode: (data['reconCode'] ?? '').toString(),
+        billIds: _selected.toList(),
+        billLabels: const [],
+        simulated: false,
+        autoConfirm: true,
+      );
+      if (!sent) throw StateError('This link has no owner.');
+      notifyPaymentConfirmed(widget.token);
+      if (!mounted) return;
+      setState(() {
+        _declared = true;
+        _gatewayDeclared = true;
+        _sending = false;
+        _paidNow = amount;
+        _gatewayNote =
+            'Verified ${payment.method} · RM ${amount.toStringAsFixed(2)}'
+            ' · ${payment.reference}';
+        _gatewayNoteBad = false;
+      });
+      rememberPendingPayment(
+        token: widget.token,
+        amount: amount,
+        expectedTotal: (_snapshotTotal - amount).clamp(0, _snapshotTotal),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _gatewayNote = 'Payment seen but not recorded: $error';
+        _gatewayNoteBad = true;
+      });
+    }
+  }
+
   Widget _paidBanner(double amount) {
     return Container(
       width: double.infinity,
@@ -1296,6 +1378,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             await navigateTo(session.url);
         if (!mounted) return;
         setState(() => _sending = opened);
+        if (opened) {
+          _checkoutTab = tab;
+          _startGatewayPoll(session.id, totalBalance);
+        }
         return;
       }
       // No session: the prepared tab is not needed and will be closed by the

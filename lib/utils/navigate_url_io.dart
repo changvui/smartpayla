@@ -31,3 +31,6 @@ bool wasOpenedAsPopup() => false;
 
 /// Native builds have no tab to close; the back gesture returns to the app.
 void cancelAndCloseTab() {}
+
+/// Native builds have no tab to close.
+void closeTabHandle(Object? tab) {}

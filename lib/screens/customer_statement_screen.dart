@@ -1061,6 +1061,22 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
               ),
             ],
             const SizedBox(height: 10),
+            if (!gateway && reconCode.isNotEmpty)
+              _reconCodeRow(reconCode, bills),
+          ] else if (!gateway)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'No DuitNow QR has been set up yet. Use one of the options '
+                'below, or contact the agent.',
+                style: TextStyle(fontSize: 12.5, color: _ink, height: 1.45),
+              ),
+            ),
             Center(
               child: Column(
                 children: [
@@ -1126,22 +1142,6 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                       style: TextButton.styleFrom(foregroundColor: _blue),
                     ),
                 ],
-              ),
-            ),
-            if (!gateway && reconCode.isNotEmpty)
-              _reconCodeRow(reconCode, bills),
-          ] else if (!gateway)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: _blueSoft,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Text(
-                'No DuitNow QR has been set up yet. Use one of the options '
-                'below, or contact the agent.',
-                style: TextStyle(fontSize: 12.5, color: _ink, height: 1.45),
               ),
             ),
           if (!gateway) ...[

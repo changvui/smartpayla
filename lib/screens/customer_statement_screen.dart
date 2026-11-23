@@ -263,6 +263,14 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         final balance = (bill['balance'] as num?)?.toDouble() ?? 0;
         final applied = balance < remaining ? balance : remaining;
         bill['balance'] = balance - applied;
+        // Keep the "Paid" column honest: the money is confirmed, so it counts as
+        // paid even though the snapshot has not been rewritten yet.
+        final paid = (bill['paid'] as num?)?.toDouble() ?? 0;
+        bill['paid'] = paid + applied;
+        final status = (bill['status'] ?? 'Unpaid').toString();
+        if (applied > 0 && status != 'Paid') {
+          bill['status'] = (balance - applied) <= 0.005 ? 'Paid' : 'Partial';
+        }
         remaining -= applied;
       }
     }

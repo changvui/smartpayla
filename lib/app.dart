@@ -7,6 +7,7 @@ import 'screens/home_shell.dart';
 import 'screens/login_screen.dart';
 import 'services/session_policy.dart';
 import 'utils/back_guard.dart';
+import 'utils/payment_bridge.dart';
 import 'state/auth_provider.dart';
 import 'services/gateway_autoconfirm.dart';
 import 'state/providers.dart';
@@ -54,22 +55,34 @@ class CustomerVisit extends StatefulWidget {
 }
 
 class _CustomerVisitState extends State<CustomerVisit> {
+  int _reloadKey = 0;
+  void Function()? _stopListening;
+
   @override
   void initState() {
     super.initState();
     installCustomerBackGuard();
     signOutForCustomerVisit();
+    // The checkout happens in a second tab; when it reports a payment, reload
+    // the statement so this window shows the settled balance too.
+    _stopListening = listenPaymentConfirmed(widget.token, () {
+      if (mounted) setState(() => _reloadKey++);
+    });
   }
 
   @override
   void dispose() {
+    _stopListening?.call();
     removeCustomerBackGuard();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return CustomerStatementScreen(token: widget.token);
+    return CustomerStatementScreen(
+      key: ValueKey(_reloadKey),
+      token: widget.token,
+    );
   }
 }
 

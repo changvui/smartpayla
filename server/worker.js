@@ -370,7 +370,7 @@ async function handlePayCreate(request, env, origin) {
   const separator = returnBase.includes("?") ? "&" : "?";
   const successUrl =
     `${returnBase}${separator}s=${encodeURIComponent(token)}` +
-    "&paid=1&session_id={CHECKOUT_SESSION_ID}";
+    "&paid=1&popup=1&session_id={CHECKOUT_SESSION_ID}";
   const cancelUrl = `${returnBase}${separator}s=${encodeURIComponent(token)}`;
 
   // Stripe removed `payment_method_types` from Checkout Sessions; a session is

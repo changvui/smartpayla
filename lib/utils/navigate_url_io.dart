@@ -12,3 +12,7 @@ Future<bool> navigateTo(String url) async {
     return false;
   }
 }
+
+
+/// Native builds stay on the statement; there is no tab to close.
+void closeCurrentTab() {}

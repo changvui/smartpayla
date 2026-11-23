@@ -24,3 +24,14 @@ Future<bool> navigateTo(String url) async {
     return false;
   }
 }
+
+
+/// Closes the tab that the app opened for the checkout. Only a tab opened by a
+/// script may close itself, which is exactly the case here.
+void closeCurrentTab() {
+  try {
+    web.window.close();
+  } catch (_) {
+    // Some browsers refuse; the page then stays on "payment confirmed".
+  }
+}

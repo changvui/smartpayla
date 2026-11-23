@@ -8,6 +8,7 @@ import '../services/payment_gateway.dart';
 import '../services/statement_service.dart';
 import '../utils/checkout_url.dart';
 import '../utils/navigate_url.dart';
+import '../utils/payment_bridge.dart';
 import 'checkout_screen.dart';
 import '../utils/whatsapp.dart';
 import '../widgets/payment_actions.dart';
@@ -1259,6 +1260,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         throw StateError('This link has no owner. Ask for a new link.');
       }
       clearPaymentParams(token: widget.token);
+      // The statement tab is still open in the other window; tell it, then close
+      // this tab so the customer lands back where they started.
+      notifyPaymentConfirmed(widget.token);
       if (!mounted) return;
       setState(() {
         _declared = true;
@@ -1271,6 +1275,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           backgroundColor: _green,
         ),
       );
+      if (Uri.base.queryParameters['popup'] == '1') {
+        await Future<void>.delayed(const Duration(milliseconds: 1600));
+        closeCurrentTab();
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() => _sending = false);

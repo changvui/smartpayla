@@ -68,6 +68,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   Map<String, dynamic>? _data;
   bool _gatewayDeclared = false;
   bool _gatewayHandled = false;
+
+  /// Money the gateway has already confirmed in this session. The published
+  /// statement is a snapshot that only the agent can rewrite, so the page shows
+  /// the payment immediately and lets the snapshot catch up.
+  double _paidNow = 0;
   bool _sending = false;
   String? _lastError;
 
@@ -201,7 +206,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     );
     final shop = (data['shopName'] ?? 'SmartPayLA').toString();
     final customer = (data['customerName'] ?? '').toString();
-    final totalBalance = (data['totalBalance'] as num?)?.toDouble() ?? 0;
+    final snapshotTotal = (data['totalBalance'] as num?)?.toDouble() ?? 0;
     final bills = (data['bills'] as List? ?? const [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
@@ -221,6 +226,25 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _selected.add((bills.first['id'] ?? '').toString());
       }
     }
+    // Subtract what the gateway just confirmed, oldest bill first - the same
+    // order the ledger uses - so the page agrees with the money that has left.
+    if (_paidNow > 0) {
+      var remaining = _paidNow;
+      for (final bill in bills) {
+        if (remaining <= 0) break;
+        final balance = (bill['balance'] as num?)?.toDouble() ?? 0;
+        final applied = balance < remaining ? balance : remaining;
+        bill['balance'] = balance - applied;
+        remaining -= applied;
+      }
+    }
+    final totalBalance = bills.isEmpty
+        ? (snapshotTotal - _paidNow).clamp(0.0, snapshotTotal)
+        : bills.fold<double>(
+            0,
+            (sum, bill) => sum + ((bill['balance'] as num?)?.toDouble() ?? 0),
+          );
+
     var selectedTotal = 0.0;
     for (final bill in bills) {
       if (_selected.contains((bill['id'] ?? '').toString())) {
@@ -268,6 +292,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           ),
         ),
         const SizedBox(height: 20),
+        if (_paidNow > 0) ...[
+          _paidBanner(_paidNow),
+          const SizedBox(height: 12),
+        ],
         _balanceCard(totalBalance, bills.length),
         const SizedBox(height: 24),
         if (bills.isEmpty)
@@ -352,6 +380,48 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           textAlign: TextAlign.center,
         ),
       ],
+    );
+  }
+
+  /// Shown the moment the gateway confirms, before the agent's ledger has been
+  /// republished. "Updating" is honest: the snapshot is still the old one, and
+  /// this page refreshes itself when the agent confirms.
+  Widget _paidBanner(double amount) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF3),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: _green, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Paid ${_money(amount)}',
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: _green,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  "The gateway confirmed this payment. The bills below are "
+                  "updated already; the agent's ledger catches up by itself.",
+                  style: TextStyle(fontSize: 11, color: _muted, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1208,6 +1278,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _declared = true;
         _gatewayDeclared = true;
         _sending = false;
+        _paidNow = totalBalance;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1291,6 +1362,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         _declared = true;
         _gatewayDeclared = true;
         _sending = false;
+        _paidNow = payment.amount > 0 ? payment.amount : _paidNow;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

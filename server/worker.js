@@ -42,6 +42,12 @@ const GEMINI_MODEL_FALLBACKS = [
   "gemini-flash-lite-latest",
 ];
 
+// Stripe Checkout (test mode by default). Cards and FPX only: GrabPay and
+// Touch 'n Go are not available through Stripe Malaysia, and they need a local
+// acquirer (Curlec, iPay88 or HitPay) instead.
+const STRIPE_API = "https://api.stripe.com/v1";
+const MAX_PAYMENTS_PER_HOUR = 30;
+
 // Generic chat (partner module) — one prompt in, one reply out.
 const MAX_CHAT_PROMPT = 4_000;
 const MAX_CHATS_PER_HOUR = 40;
@@ -282,6 +288,157 @@ async function handleChat(request, env, origin) {
       origin,
     );
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// /pay — Stripe Checkout (card + FPX)
+// ---------------------------------------------------------------------------
+
+function stripeKey(env) {
+  return String(env.STRIPE_SECRET_KEY ?? "").trim();
+}
+
+async function stripeRequest(env, path, form) {
+  const body = new URLSearchParams();
+  for (const [key, value] of Object.entries(form)) body.append(key, value);
+  const response = await fetchWithTimeout(
+    `${STRIPE_API}${path}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${stripeKey(env)}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+    },
+    25_000,
+  );
+  const text = await response.text();
+  let data = {};
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+/// Creates a Checkout Session and returns the hosted page URL.
+async function handlePayCreate(request, env, origin) {
+  if (!stripeKey(env)) {
+    return json({ error: "Stripe is not configured" }, 503, origin);
+  }
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (await rateLimited(env, ip, "pay", MAX_PAYMENTS_PER_HOUR)) {
+    return json({ error: "Too many attempts. Try again later." }, 429, origin);
+  }
+
+  let data;
+  try {
+    data = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400, origin);
+  }
+
+  const token = clean(data.token, 80);
+  const returnBase = clean(data.returnUrl, 400);
+  const description = clean(data.description, 120) || "Bill payment";
+  const amount = Number(data.amount);
+
+  if (!token || !returnBase) {
+    return json({ error: "Missing token or return URL" }, 400, origin);
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return json({ error: "Invalid amount" }, 400, origin);
+  }
+
+  const cents = Math.round(amount * 100);
+  const separator = returnBase.includes("?") ? "&" : "?";
+  const successUrl =
+    `${returnBase}${separator}s=${encodeURIComponent(token)}` +
+    "&paid=1&session_id={CHECKOUT_SESSION_ID}";
+  const cancelUrl = `${returnBase}${separator}s=${encodeURIComponent(token)}`;
+
+  const result = await stripeRequest(env, "/checkout/sessions", {
+    mode: "payment",
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    "payment_method_types[0]": "card",
+    "payment_method_types[1]": "fpx",
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": "myr",
+    "line_items[0][price_data][unit_amount]": String(cents),
+    "line_items[0][price_data][product_data][name]": description,
+    "metadata[statement_token]": token,
+  });
+
+  if (!result.ok) {
+    return json(
+      { error: `Stripe ${result.status}`, detail: result.data?.error?.message ?? "" },
+      502,
+      origin,
+    );
+  }
+
+  return json(
+    {
+      id: result.data.id,
+      url: result.data.url,
+      amount: cents / 100,
+      currency: "myr",
+    },
+    200,
+    origin,
+  );
+}
+
+/// Reports whether a session was paid, how much, and with which method.
+async function handlePayVerify(request, env, origin) {
+  if (!stripeKey(env)) {
+    return json({ error: "Stripe is not configured" }, 503, origin);
+  }
+
+  let data;
+  try {
+    data = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400, origin);
+  }
+
+  const sessionId = clean(data.sessionId, 120);
+  if (!sessionId.startsWith("cs_")) {
+    return json({ error: "Invalid session id" }, 400, origin);
+  }
+
+  const result = await stripeRequest(
+    env,
+    `/checkout/sessions/${encodeURIComponent(sessionId)}`,
+    {},
+  );
+  if (!result.ok) {
+    return json({ error: `Stripe ${result.status}` }, 502, origin);
+  }
+
+  const session = result.data;
+  const methods = Array.isArray(session.payment_method_types)
+    ? session.payment_method_types
+    : [];
+  return json(
+    {
+      paid: session.payment_status === "paid",
+      status: session.payment_status,
+      amount: (Number(session.amount_total) || 0) / 100,
+      currency: session.currency || "myr",
+      method: methods.includes("fpx") ? "FPX" : "Card",
+      reference: session.payment_intent
+        ? String(session.payment_intent).slice(-12).toUpperCase()
+        : sessionId.slice(-12).toUpperCase(),
+    },
+    200,
+    origin,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +768,8 @@ export default {
 
     const isScan = path.endsWith("/scan");
     const isChat = path.endsWith("/chat");
+    const isPayCreate = path.endsWith("/pay/create");
+    const isPayVerify = path.endsWith("/pay/verify");
     const maxLength = isScan ? MAX_SCAN_BASE64 + 100_000 : MAX_BODY_BYTES;
 
     if (request.method === "OPTIONS") {
@@ -630,6 +789,8 @@ export default {
 
     if (isScan) return handleScan(request, env, origin);
     if (isChat) return handleChat(request, env, origin);
+    if (isPayCreate) return handlePayCreate(request, env, origin);
+    if (isPayVerify) return handlePayVerify(request, env, origin);
     return handleReminder(request, env, origin);
   },
 };

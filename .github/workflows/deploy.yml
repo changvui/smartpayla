@@ -39,6 +39,8 @@ jobs:
           --base-href "/${{ github.event.repository.name }}/"
           --dart-define=DEMO=true
           --dart-define=REMINDER_PROXY_URL=https://smartpayla-ai.changvui12.workers.dev
+          --dart-define=STRIPE_CHECKOUT=true
+          --dart-define=REMINDER_PROXY_URL=https://smartpayla-ai.changvui12.workers.dev
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

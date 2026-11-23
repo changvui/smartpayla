@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../services/payment_gateway.dart';
 import '../services/statement_service.dart';
+import '../utils/checkout_url.dart';
+import '../utils/navigate_url.dart';
 import 'checkout_screen.dart';
 import '../utils/whatsapp.dart';
 import '../widgets/payment_actions.dart';
@@ -62,6 +65,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   bool _declared = false;
   Map<String, dynamic>? _data;
   bool _gatewayDeclared = false;
+  bool _gatewayHandled = false;
   bool _sending = false;
   String? _lastError;
 
@@ -187,6 +191,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
 
   Widget _statement(Map<String, dynamic> data) {
     _data = data;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _handleGatewayReturn(data),
+    );
     final shop = (data['shopName'] ?? 'SmartPayLA').toString();
     final customer = (data['customerName'] ?? '').toString();
     final totalBalance = (data['totalBalance'] as num?)?.toDouble() ?? 0;
@@ -1121,8 +1128,28 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// is part of the same app - it looks and reads like a separate checkout, and
   /// the address bar changes on the web - but nothing is charged.
   Future<void> _payNowDialog(double totalBalance) async {
-    final data = _data ?? const <String, dynamic>{};
+    final data = _data ?? const <String, dynamic> {};
 
+    // A build with Stripe keys sends the customer to the real hosted checkout.
+    // If that call fails the simulated page below still runs, so a demo never
+    // dead-ends on the network.
+    if (PaymentGateway.isConfigured) {
+      final session = await PaymentGateway().create(
+        token: widget.token,
+        amount: totalBalance,
+        description:
+            'Bill payment - ${(data['customerName'] ?? 'customer').toString()}',
+        returnUrl: _returnUrlBase(),
+      );
+      if (session != null) {
+        final left = await navigateTo(session.url);
+        if (!mounted) return;
+        setState(() => _sending = left);
+        return;
+      }
+    }
+
+    if (!mounted) return;
     final outcome = await Navigator.of(context).push<CheckoutOutcome>(
       MaterialPageRoute<CheckoutOutcome>(
         fullscreenDialog: true,
@@ -1173,6 +1200,94 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         SnackBar(content: Text('Payment failed: $error')),
       );
     }
+  }
+
+  /// Where the provider sends the customer back to. On the web that is this
+  /// page without its query string; in the app it is the configured origin.
+  String _returnUrlBase() {
+    const appOrigin = String.fromEnvironment(
+      'APP_ORIGIN',
+      defaultValue: 'https://changvui.github.io/smartpayla/',
+    );
+    final base = Uri.base;
+    if (base.scheme == 'http' || base.scheme == 'https') {
+      final withoutQuery = base.replace(query: '', fragment: '');
+      return withoutQuery.toString();
+    }
+    return appOrigin;
+  }
+
+  /// The provider redirects back with `paid=1&session_id=...`. The payment is
+  /// only recorded after the Worker has asked Stripe whether that session was
+  /// really paid - the query string alone is not evidence.
+  Future<void> _handleGatewayReturn(Map<String, dynamic> data) async {
+    if (_gatewayHandled || !PaymentGateway.isConfigured) return;
+    final params = Uri.base.queryParameters;
+    if (params['paid'] != '1') return;
+    final sessionId = (params['session_id'] ?? '').trim();
+    if (sessionId.isEmpty) return;
+
+    _gatewayHandled = true;
+    final payment = await PaymentGateway().verify(sessionId);
+    if (!mounted) return;
+
+    if (payment == null || !payment.paid) {
+      clearPaymentParams(token: widget.token);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('The payment could not be verified. Nothing was charged.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _sending = true);
+    try {
+      final sent = await _service.declarePayment(
+        token: widget.token,
+        ownerUid: (data['ownerUid'] ?? '').toString(),
+        customerName: (data['customerName'] ?? '').toString(),
+        amount: payment.amount > 0 ? payment.amount : _totalFrom(data),
+        note: 'Stripe ${payment.method} (${payment.reference})',
+        proofImage: null,
+        reconCode: (data['reconCode'] ?? '').toString(),
+        billIds: _selected.toList(),
+        billLabels: const [],
+        simulated: false,
+      );
+      if (!sent) {
+        throw StateError('This link has no owner. Ask for a new link.');
+      }
+      clearPaymentParams(token: widget.token);
+      if (!mounted) return;
+      setState(() {
+        _declared = true;
+        _gatewayDeclared = true;
+        _sending = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Payment confirmed by Stripe (${payment.method}).'),
+          backgroundColor: _green,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Payment recorded elsewhere: $error')),
+      );
+    }
+  }
+
+  double _totalFrom(Map<String, dynamic> data) {
+    final bills = data['bills'];
+    if (bills is! List) return 0;
+    var sum = 0.0;
+    for (final bill in bills.whereType<Map>()) {
+      sum += (bill['balance'] as num?)?.toDouble() ?? 0;
+    }
+    return sum;
   }
 
   Widget _declaredCard() {

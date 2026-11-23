@@ -50,9 +50,7 @@ class GatewayAutoConfirm extends Notifier<void> {
             shopName: settings.shopName,
             customerName: (claim['customerName'] ?? '').toString(),
             amount: (claim['amount'] as num?)?.toDouble() ?? 0,
-            method: (claim['note'] ?? '').toString().contains('Card')
-                ? 'Card'
-                : 'DuitNow',
+            method: _methodOf((claim['note'] ?? '').toString()),
             reference: (claim['reconCode'] ?? claim['token'] ?? '').toString(),
             paidAt: DateTime.tryParse(
                   (claim['declaredAt'] ?? '').toString(),
@@ -87,6 +85,14 @@ class GatewayAutoConfirm extends Notifier<void> {
       _busy = false;
     }
   }
+}
+
+String _methodOf(String note) {
+  final value = note.toLowerCase();
+  if (value.contains('fpx')) return 'FPX';
+  if (value.contains('card')) return 'Card';
+  if (value.contains('duitnow')) return 'DuitNow';
+  return 'Gateway';
 }
 
 final gatewayAutoConfirmProvider =

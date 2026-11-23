@@ -262,3 +262,37 @@ account, but its daily request limit is shown per project in AI Studio and can b
 small (tens to a few hundred requests per day depending on the model), and
 free-tier inputs may be used by Google to improve their models. Both are recorded
 in the report as prototype constraints.
+
+## 11. `/pay/create` and `/pay/verify` — Stripe Checkout (card + FPX)
+
+The customer pays on a real hosted page. The Worker holds the Stripe secret key;
+the client only creates a session and later asks whether it was paid.
+
+```
+customer taps Pay now
+  -> POST /pay/create   { token, amount, description, returnUrl }
+  <- { id, url }                    // stripe.com hosted checkout
+  -> browser navigates to url       (same tab)
+  <- Stripe redirects to <returnUrl>?s=<token>&paid=1&session_id=cs_test_...
+  -> POST /pay/verify   { sessionId }
+  <- { paid, amount, method, reference }
+  -> only if paid: the page writes a payment claim; the agent app confirms it
+```
+
+| Item | Value |
+|---|---|
+| Secret | `STRIPE_SECRET_KEY` (`sk_test_...`) |
+| Methods | `card` and `fpx` |
+| Currency | MYR, amount in cents derived from the bill |
+| Client flag | `--dart-define=STRIPE_CHECKOUT=true` |
+| Fallback | without the flag or without a key, the statement keeps its simulated checkout |
+
+Why verification instead of a webhook: the Worker has no Firestore service
+account (that needs a paid Firebase project), so it cannot write the payment. It
+can, however, ask Stripe whether a session was paid, and the signed-in agent
+client performs the write it is already allowed to perform. A production
+deployment would add the webhook and drop the return-trip verification.
+
+GrabPay and Touch 'n Go are not available through Stripe Malaysia; they require a
+local acquirer (Razorpay Curlec, iPay88 or HitPay). The client interface does not
+change: only the checkout URL and the verification call move.

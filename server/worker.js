@@ -377,8 +377,9 @@ async function handlePayCreate(request, env, origin) {
     mode: "payment",
     success_url: successUrl,
     cancel_url: cancelUrl,
-    "payment_method_types[0]": "card",
-    "payment_method_types[1]": "fpx",
+    // Payment methods are configured in the Stripe Dashboard now; passing
+    // payment_method_types makes the API reject the session (400).
+    locale: "en",
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "myr",
     "line_items[0][price_data][unit_amount]": String(cents),

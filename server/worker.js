@@ -373,19 +373,32 @@ async function handlePayCreate(request, env, origin) {
     "&paid=1&session_id={CHECKOUT_SESSION_ID}";
   const cancelUrl = `${returnBase}${separator}s=${encodeURIComponent(token)}`;
 
-  const result = await stripeRequest(env, "/checkout/sessions", {
+  // Stripe removed `payment_method_types` from Checkout Sessions; a session is
+  // limited with `allowed_payment_method_types` instead, and anything left out
+  // falls back to the Dashboard defaults. FPX and GrabPay only become available
+  // once the Stripe account is verified, so the list is a variable: set
+  // STRIPE_METHODS="card,fpx" after verification, no redeploy of the app.
+  const allowed = String(env.STRIPE_METHODS ?? "card")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const form = {
     mode: "payment",
     success_url: successUrl,
     cancel_url: cancelUrl,
-    // Payment methods are configured in the Stripe Dashboard now; passing
-    // payment_method_types makes the API reject the session (400).
     locale: "en",
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": "myr",
     "line_items[0][price_data][unit_amount]": String(cents),
     "line_items[0][price_data][product_data][name]": description,
     "metadata[statement_token]": token,
+  };
+  allowed.forEach((method, index) => {
+    form[`allowed_payment_method_types[${index}]`] = method;
   });
+
+  const result = await stripeRequest(env, "/checkout/sessions", form);
 
   if (!result.ok) {
     return json(

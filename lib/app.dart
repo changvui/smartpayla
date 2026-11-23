@@ -21,6 +21,11 @@ class SmartPayLaApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDarkMode = ref.watch(themeModeProvider);
+
+    // Confirms payments a gateway already verified, in whichever context the
+    // signed-in session is: the dashboard, or a statement tab on the agent's own
+    // device. Inert until such a claim exists.
+    ref.watch(gatewayAutoConfirmProvider);
     // A customer opens a statement from WhatsApp: `?s=<token>` renders the
     // read-only page and never touches the sign-in flow.
     final params = Uri.base.queryParameters;
@@ -49,6 +54,10 @@ class SmartPayLaApp extends ConsumerWidget {
       theme: buildAppTheme(), 
       darkTheme: buildDarkAppTheme(), // 👈 Use the new function here
       themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
+
+      // Confirms payments a gateway already verified, in whichever context the
+      // signed-in session happens to be: the dashboard, or a statement tab on
+      // the agent's own device. Inert until such a claim exists.
       
       home: statementToken != null && statementToken.isNotEmpty
           ? CustomerVisit(token: statementToken)
@@ -189,9 +198,7 @@ class AuthGate extends ConsumerWidget {
       return const HomeShell();
     }
 
-    // Confirms payments a gateway already verified, so the agent does not
-    // approve the same money twice. Inert until such a claim exists.
-    ref.watch(gatewayAutoConfirmProvider);
+
 
     final authState = ref.watch(authStateProvider);
 

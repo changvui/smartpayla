@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'services/session_policy.dart';
 import 'utils/back_guard.dart';
 import 'utils/navigate_url.dart';
+import 'utils/pending_token.dart';
 import 'utils/payment_bridge.dart';
 import 'state/auth_provider.dart';
 import 'services/gateway_autoconfirm.dart';
@@ -23,12 +24,22 @@ class SmartPayLaApp extends ConsumerWidget {
     // A customer opens a statement from WhatsApp: `?s=<token>` renders the
     // read-only page and never touches the sign-in flow.
     final params = Uri.base.queryParameters;
-    final statementToken = params['s'];
+    var statementToken = params['s'];
     // A gateway return without a token means the redirect lost it. Showing the
     // login screen there would look like the payment failed and would expose the
     // agent's sign-in page to a customer, so a neutral notice is shown instead.
     final returningFromGateway =
         params['paid'] == '1' || (params['session_id'] ?? '').isNotEmpty;
+
+    // A redirect that lost `?s=` is repaired from the token remembered before
+    // the customer left, so the return still lands on their own statement.
+    if ((statementToken == null || statementToken.isEmpty) &&
+        returningFromGateway) {
+      final remembered = readPendingToken();
+      if (remembered != null && remembered.isNotEmpty) {
+        statementToken = remembered;
+      }
+    }
 
     return MaterialApp(
       title: 'SmartPayLA',

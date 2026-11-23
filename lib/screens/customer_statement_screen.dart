@@ -193,6 +193,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
 
   Widget _statement(Map<String, dynamic> data) {
     _data = data;
+    // The customer is on their own statement again; the fallback token has done
+    // its job and must not redirect a later visit.
+    clearPendingToken();
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _handleGatewayReturn(data),
     );

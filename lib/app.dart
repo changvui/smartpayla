@@ -31,10 +31,11 @@ class SmartPayLaApp extends ConsumerWidget {
     final returningFromGateway =
         params['paid'] == '1' || (params['session_id'] ?? '').isNotEmpty;
 
-    // A redirect that lost `?s=` is repaired from the token remembered before
-    // the customer left, so the return still lands on their own statement.
-    if ((statementToken == null || statementToken.isEmpty) &&
-        returningFromGateway) {
+    // A redirect can come back with no query at all, so the remembered token is
+    // used whenever `?s=` is missing - not only when gateway parameters survive.
+    // It expires after two hours, so an agent opening the app later is not pulled
+    // into an old statement.
+    if (statementToken == null || statementToken.isEmpty) {
       final remembered = readPendingToken();
       if (remembered != null && remembered.isNotEmpty) {
         statementToken = remembered;

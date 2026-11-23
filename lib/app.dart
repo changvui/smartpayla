@@ -74,26 +74,26 @@ class _GatewayReturnNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFFF5F8FE),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F8FE),
       body: Center(
         child: Padding(
-          padding: EdgeInsets.all(28),
+          padding: const EdgeInsets.all(28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
+              const Icon(
                 Icons.check_circle_outline_rounded,
                 size: 44,
                 color: Color(0xFF15803D),
               ),
-              SizedBox(height: 14),
-              Text(
+              const SizedBox(height: 14),
+              const Text(
                 'Payment received',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
               ),
-              SizedBox(height: 8),
-              Text(
+              const SizedBox(height: 8),
+              const Text(
                 'Return to the statement tab to see the updated balance. '
                 'This window can be closed.',
                 textAlign: TextAlign.center,
@@ -101,6 +101,16 @@ class _GatewayReturnNotice extends StatelessWidget {
                   fontSize: 12.5,
                   color: Color(0xFF64748B),
                   height: 1.45,
+                ),
+              ),
+              SizedBox(height: 18),
+              // Diagnostic: which parameters the redirect actually delivered.
+              Text(
+                'Redirect contained: ${Uri.base.queryParameters.keys.join(', ')}',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF94A3B8),
                 ),
               ),
             ],

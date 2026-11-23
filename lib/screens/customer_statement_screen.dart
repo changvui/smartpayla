@@ -366,8 +366,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             const SizedBox(height: 10),
           ],
           const SizedBox(height: 12),
-          if (!PaymentGateway.isConfigured)
-            _paymentSection(
+          _paymentSection(
             totalBalance: selectedTotal,
             qr: qr,
             bankNote: bankNote,
@@ -894,7 +893,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     required String reconCode,
     required List<Map<String, dynamic>> bills,
   }) {
-    final hasQr = qr != null && qr.isNotEmpty;
+    final gateway = PaymentGateway.isConfigured;
+    final hasQr = !gateway && qr != null && qr.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -905,9 +905,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Pay now',
-            style: TextStyle(
+          Text(
+            gateway ? 'Amount to pay' : 'Pay now',
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w800,
               color: _ink,
@@ -1111,24 +1111,26 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                         ),
                       ),
                     ),
-                  TextButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(
-                        ClipboardData(
-                          text: _payAmount(totalBalance).toStringAsFixed(2),
-                        ),
-                      );
-                      _toast('Amount copied — paste it after scanning');
-                    },
-                    icon: const Icon(Icons.copy_rounded, size: 16),
-                    label: const Text('Copy amount'),
-                    style: TextButton.styleFrom(foregroundColor: _blue),
-                  ),
+                  if (!gateway)
+                    TextButton.icon(
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(
+                            text: _payAmount(totalBalance).toStringAsFixed(2),
+                          ),
+                        );
+                        _toast('Amount copied — paste it after scanning');
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 16),
+                      label: const Text('Copy amount'),
+                      style: TextButton.styleFrom(foregroundColor: _blue),
+                    ),
                 ],
               ),
             ),
-            if (reconCode.isNotEmpty) _reconCodeRow(reconCode, bills),
-          ] else
+            if (!gateway && reconCode.isNotEmpty)
+              _reconCodeRow(reconCode, bills),
+          ] else if (!gateway)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
@@ -1142,8 +1144,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 style: TextStyle(fontSize: 12.5, color: _ink, height: 1.45),
               ),
             ),
-          const SizedBox(height: 10),
-          _otherWays(bankNote, payee),
+          if (!gateway) ...[
+            const SizedBox(height: 10),
+            _otherWays(bankNote, payee),
+          ],
         ],
       ),
     );

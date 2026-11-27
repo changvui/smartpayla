@@ -983,7 +983,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     required List<Map<String, dynamic>> bills,
   }) {
     final gateway = PaymentGateway.isConfigured;
-    final hasQr = !gateway && qr != null && qr.isNotEmpty;
+    final hasQr = qr != null && qr.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1018,7 +1018,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             style: const TextStyle(fontSize: 12.5, color: _muted),
           ),
           const SizedBox(height: 14),
-          if (hasQr) ...[
+          if (hasQr && !gateway) ...[
             if (!_showQr)
               InkWell(
                 borderRadius: BorderRadius.circular(16),
@@ -1233,7 +1233,59 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 ],
               ),
             ),
-          if (!gateway) ...[
+          if (gateway && hasQr) ...[
+            const Divider(height: 26),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                InkWell(
+                  onTap: () => _showFullScreenQr(
+                    qr,
+                    amount: _payAmount(totalBalance),
+                    reference: reconCode,
+                  ),
+                  child: Container(
+                    width: 74,
+                    height: 74,
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _border),
+                    ),
+                    child: Image.memory(_decode(qr), fit: BoxFit.contain),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Or pay by DuitNow / bank transfer',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _ink,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Scan the code, or transfer and use the bill number as '
+                        'the reference. The agent confirms this one, because no '
+                        'gateway verifies it.',
+                        style: TextStyle(fontSize: 11.5, color: _muted, height: 1.35),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _reconCodeRow(reconCode, bills),
+            const SizedBox(height: 8),
+            _otherWays(bankNote, payee),
+          ] else if (!gateway) ...[
             const SizedBox(height: 10),
             _otherWays(bankNote, payee),
           ],
@@ -1808,6 +1860,15 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           ),
           const SizedBox(height: 10),
         ],
+        if (!_declared && PaymentGateway.isConfigured)
+          TextButton(
+            onPressed: _sending ? null : () => _declareDialog(totalBalance),
+            style: TextButton.styleFrom(foregroundColor: _muted),
+            child: const Text(
+              'I paid by transfer instead',
+              style: TextStyle(fontSize: 12.5),
+            ),
+          ),
         if (!_declared && !PaymentGateway.isConfigured)
         SizedBox(
           width: double.infinity,

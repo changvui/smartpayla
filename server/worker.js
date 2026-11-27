@@ -399,6 +399,10 @@ async function handlePayCreate(request, env, origin) {
     "line_items[0][price_data][unit_amount]": String(cents),
     "line_items[0][price_data][product_data][name]": description,
     "metadata[statement_token]": token,
+    // Shown in the Stripe dashboard, so a refund can be traced to the bill
+    // without opening this application.
+    "metadata[bill]": clean(data.billNo, 60) || "not specified",
+    "metadata[customer]": clean(data.customerName, 80) || "not specified",
     // Stripe echoes this back on the session, so a redirect that loses the query
     // can still be tied to the statement it belongs to.
     client_reference_id: token,

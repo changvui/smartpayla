@@ -1468,12 +1468,19 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
       // fallback cannot leave the app (or its login screen) one Back away.
       ensureStatementUrl(widget.token);
 
+      final selectedBill = (data['bills'] as List? ?? const [])
+          .whereType<Map>()
+          .where((b) => _selected.contains((b['id'] ?? '').toString()))
+          .firstOrNull;
+
       final session = await PaymentGateway().create(
         token: widget.token,
         amount: totalBalance,
         description:
             'Bill payment - ${(data['customerName'] ?? 'customer').toString()}',
         returnUrl: _returnUrlBase(),
+        billNo: (selectedBill?['billNo'] ?? '').toString(),
+        customerName: (data['customerName'] ?? '').toString(),
       );
       if (session != null) {
         final opened = loadInCheckoutTab(tab, session.url) ||

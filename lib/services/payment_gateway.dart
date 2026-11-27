@@ -55,6 +55,8 @@ class PaymentGateway {
     required double amount,
     required String description,
     required String returnUrl,
+    String? billNo,
+    String? customerName,
   }) async {
     if (!isConfigured) return null;
     try {
@@ -67,6 +69,8 @@ class PaymentGateway {
               'amount': amount,
               'description': description,
               'returnUrl': returnUrl,
+              'billNo': billNo ?? '',
+              'customerName': customerName ?? '',
             }),
           )
           .timeout(const Duration(seconds: 25));

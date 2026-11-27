@@ -10,6 +10,7 @@ import '../models/reminder.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/reminder_service.dart';
 import '../state/auth_provider.dart';
+import '../services/payment_gateway.dart';
 import '../state/providers.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -262,7 +263,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
             const SizedBox(height: 18),
 
-            // Payment (DuitNow QR shown to customers)
+            // Payment: with a gateway the customer pays on the hosted checkout, so
+            // the QR and the bank details below are only meaningful without one.
             const SectionHeader(title: 'Payment'),
             const _PaymentSettingsCard(),
             const SizedBox(height: 18),
@@ -439,7 +441,7 @@ class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'DuitNow QR',
+            PaymentGateway.isConfigured ? 'Card payments' : 'DuitNow QR',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
@@ -448,11 +450,16 @@ class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Shown on the customer payment page. Screenshot the “Receive” '
-            'code from TNG eWallet or your banking app, and crop it close to '
-            'the QR — wide margins make the code small on a phone.',
+            PaymentGateway.isConfigured
+                ? 'Customers pay by card on the provider\'s hosted page, so the '
+                      'statement no longer shows a QR, a transfer reference or bank '
+                      'details. Only the shop name is used, on the receipt.'
+                : 'Shown on the customer payment page. Screenshot the “Receive” '
+                      'code from TNG eWallet or your banking app, and crop it close to '
+                      'the QR — wide margins make the code small on a phone.',
             style: TextStyle(fontSize: 11.5, color: muted, height: 1.4),
           ),
+          if (!PaymentGateway.isConfigured) ...[
           const SizedBox(height: 12),
           Row(
             children: [
@@ -505,6 +512,7 @@ class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
               ),
             ],
           ),
+          ],
           const SizedBox(height: 14),
           TextField(
             controller: _shop,
@@ -514,23 +522,25 @@ class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
               border: OutlineInputBorder(),
             ),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _payee,
-            decoration: const InputDecoration(
-              labelText: 'Payee name (as shown on the transfer)',
-              border: OutlineInputBorder(),
+          if (!PaymentGateway.isConfigured) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _payee,
+              decoration: const InputDecoration(
+                labelText: 'Payee name (as shown on the transfer)',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _bank,
-            decoration: const InputDecoration(
-              labelText: 'Bank details / note (optional)',
-              hintText: 'Maybank 1234-5678-9012',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _bank,
+              decoration: const InputDecoration(
+                labelText: 'Bank details / note (optional)',
+                hintText: 'Maybank 1234-5678-9012',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
+          ],
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,

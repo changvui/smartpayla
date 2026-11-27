@@ -283,7 +283,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _methodTabs() {
-    const options = ['DuitNow', 'Card', 'Online banking'];
+    const options = ['DuitNow', 'Card'];
     return Row(
       children: [
         for (final option in options)

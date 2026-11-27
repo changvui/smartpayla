@@ -520,23 +520,6 @@ class _PaymentSettingsCardState extends ConsumerState<_PaymentSettingsCard> {
               border: OutlineInputBorder(),
             ),
           ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _payee,
-                decoration: const InputDecoration(
-                  labelText: 'Payee name (as shown on the transfer)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _bank,
-                decoration: const InputDecoration(
-                  labelText: 'Bank details / note (optional)',
-                  hintText: 'Maybank 1234-5678-9012',
-                  border: OutlineInputBorder(),
-                ),
-              ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,

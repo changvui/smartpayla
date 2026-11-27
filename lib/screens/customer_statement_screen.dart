@@ -1262,7 +1262,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Or pay by DuitNow / bank transfer',
+                        'Or pay by DuitNow',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -1283,11 +1283,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             ),
             const SizedBox(height: 10),
             _reconCodeRow(reconCode, bills),
-            const SizedBox(height: 8),
-            _otherWays(bankNote, payee),
           ] else if (!gateway) ...[
             const SizedBox(height: 10),
-            _otherWays(bankNote, payee),
+            _reconCodeRow(reconCode, bills),
           ],
         ],
       ),
@@ -1420,61 +1418,6 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// nothing: a static QR has no amount, and cash is handed over in person. What
   /// is genuinely missing when a QR cannot be scanned is the bank account, so
   /// that one line survives - and only if it has been filled in.
-  Widget _otherWays(String bankNote, String payee) {
-    final account = bankNote.trim();
-    final holder = payee.trim();
-    if (account.isEmpty && holder.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.account_balance_outlined, size: 18, color: _blue),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Bank transfer',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: _ink,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  account.isEmpty
-                      ? 'Ask the agent for the account number.'
-                      : account,
-                  style: const TextStyle(fontSize: 12, color: _ink),
-                ),
-                if (holder.isNotEmpty)
-                  Text(
-                    'Payee: $holder',
-                    style: const TextStyle(fontSize: 11.5, color: _muted),
-                  ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Use the bill number above as the transfer reference, so the '
-                  'agent can match the money to this bill.',
-                  style: TextStyle(fontSize: 11, color: _muted, height: 1.4),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// Shown when the customer returns from their banking app. It does not claim
   /// the money arrived — it cannot know that — it simply removes the friction of
   /// finding the declaration button again.

@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../services/payment_gateway.dart';
+import '../services/receipt_pdf.dart';
 import '../services/statement_service.dart';
 import '../utils/checkout_url.dart';
+import '../utils/qr_saver.dart';
 import '../utils/navigate_url.dart';
 import '../utils/pending_payment.dart';
 import '../utils/pending_token.dart';
@@ -83,6 +85,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   /// Last gateway verification result, shown while a payment is being applied.
   String? _gatewayNote;
   Timer? _gatewayPoll;
+  bool _autoReceiptDone = false;
   Object? _checkoutTab;
   bool _gatewayNoteBad = false;
   bool _sending = false;
@@ -330,7 +333,19 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         const SizedBox(height: 20),
         if (_paidNow > 0) ...[
           _paidBanner(_paidNow),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _downloadReceipt,
+              icon: const Icon(Icons.picture_as_pdf_outlined, size: 17),
+              label: const Text(
+                'Download receipt (PDF)',
+                style: TextStyle(fontSize: 12.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
         if (_gatewayNote != null) ...[
           _gatewayStrip(_gatewayNote!, _gatewayNoteBad),
@@ -494,6 +509,12 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         amount: amount,
         expectedTotal: (_snapshotTotal - amount).clamp(0, _snapshotTotal),
       );
+      if (!_autoReceiptDone) {
+        _autoReceiptDone = true;
+        // A short delay so the confirmation is visible before the download.
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        await _downloadReceipt();
+      }
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -541,6 +562,74 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         ],
       ),
     );
+  }
+
+  /// Builds the receipt PDF and hands it to the browser.
+  ///
+  /// Called automatically once after a gateway payment, and again from a button:
+  /// a browser can refuse a download that no click started, so the button is the
+  /// reliable path and the automatic attempt is a convenience.
+  Future<void> _downloadReceipt() async {
+    if (_paidNow <= 0) return;
+    final data = _data ?? const <String, dynamic>{};
+    final bills = (data['bills'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    final bill = bills
+        .where((b) => _selected.contains((b['id'] ?? '').toString()))
+        .firstOrNull ??
+        bills.firstOrNull;
+    final billNo = (bill?['billNo'] ?? data['reconCode'] ?? '').toString();
+    final billTotal = (bill?['total'] as num?)?.toDouble();
+    final paidBefore = (bill?['paid'] as num?)?.toDouble();
+    final remaining = (data['totalBalance'] as num?)?.toDouble();
+
+    final bytes = ReceiptPdf.build(
+      shopName: (data['shopName'] ?? 'SmartPayLA').toString(),
+      customerName: (data['customerName'] ?? '').toString(),
+      amount: _paidNow,
+      method: _gatewayNote == null ? 'Gateway' : _methodFromNote(_gatewayNote!),
+      reference: _referenceFromNote(_gatewayNote),
+      billNo: billNo,
+      paidAt: _stamp(DateTime.now()),
+      billTotal: billTotal,
+      paidBefore: paidBefore,
+      remaining: remaining == null ? null : (remaining).clamp(0, remaining),
+      simulated: !PaymentGateway.isConfigured,
+    );
+
+    final uri = 'data:application/pdf;base64,${base64Encode(bytes)}';
+    final saved = saveDataUri(uri, 'receipt-$billNo.pdf');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved
+              ? 'Receipt downloaded (receipt-$billNo.pdf).'
+              : 'Receipt ready - use the download button on a desktop browser.',
+        ),
+        backgroundColor: _green,
+      ),
+    );
+  }
+
+  String _methodFromNote(String note) {
+    final value = note.toLowerCase();
+    if (value.contains('fpx')) return 'FPX';
+    if (value.contains('card')) return 'Card';
+    return 'Gateway';
+  }
+
+  String _referenceFromNote(String? note) {
+    if (note == null) return '';
+    final parts = note.split('·');
+    return parts.length > 1 ? parts.last.trim() : '';
+  }
+
+  String _stamp(DateTime at) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${at.day}/${two(at.month)}/${at.year} ${two(at.hour)}:${two(at.minute)}';
   }
 
   /// A one-line trace of what the gateway verification did. Kept visible during

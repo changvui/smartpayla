@@ -51,11 +51,11 @@ class ReceiptPdf {
 
     _row(content, 'Customer', customerName.isEmpty ? 'Walk-in customer' : customerName, y);
     y -= 22;
-    _row(content, 'Bill', billNo, y);
+    _row(content, 'Bill number', billNo, y);
     y -= 22;
     _row(content, 'Method', method, y);
     y -= 22;
-    _row(content, 'Reference', reference, y);
+    _row(content, 'Gateway reference', reference, y);
     y -= 22;
     _row(content, 'Paid at', paidAt, y);
 

@@ -6,8 +6,9 @@ a reminder written in the customer's language, and a payment link the customer c
 without an account.
 
 This repository is the final-year project implementation (Tiong Chang Vui, 25WMR00499),
-combining the core transaction engine and AI reminder module with the partner's
-authentication, customer-profile and receipt-capture module.
+combining the core transaction engine and AI reminder module - and the Firebase
+integration behind both modules - with the partner's account screens, customer-profile
+screens and receipt-capture screen.
 
 ---
 

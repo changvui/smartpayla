@@ -70,7 +70,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     with WidgetsBindingObserver {
   late Future<Map<String, dynamic>?> _future;
   bool _declared = false;
-  PendingDeclaration? _pendingDecl;
+  List<PendingDeclaration> _pendingDecls = const [];
+  bool _showTransfer = false;
   Map<String, dynamic>? _data;
   bool _gatewayDeclared = false;
   bool _gatewayHandled = false;
@@ -248,16 +249,13 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     // the agent confirms, and the customer must not see the balance bounce back
     // in the meantime. Once the snapshot has caught up, the local record is
     // dropped so nothing is subtracted twice.
-    // A declared transfer waits for the agent: show it until the snapshot moves.
-    final declared = readDeclaration(widget.token);
-    if (declared != null) {
-      if (snapshotTotal <= declared.expectedTotal + 0.01) {
-        clearDeclaration(widget.token);
-        _pendingDecl = null;
-      } else {
-        _pendingDecl = declared;
-      }
-    }
+    // Declared transfers wait for the agent: show every one the snapshot has
+    // not caught up with yet, including several part payments on one bill.
+    clearAppliedDeclarations(
+      token: widget.token,
+      snapshotTotal: snapshotTotal,
+    );
+    _pendingDecls = readDeclarations(widget.token);
 
     if (_paidNow == 0) {
       final pending = readPendingPayment(widget.token);
@@ -403,7 +401,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             bills: bills,
             agentPhone: agentPhone,
           ),
-          if (_showReturnPrompt && !_declared && _pendingDecl == null) ...[
+          if (_showReturnPrompt && !_declared && _pendingDecls.isEmpty) ...[
             const SizedBox(height: 12),
             if (!PaymentGateway.isConfigured) _returnPrompt(selectedTotal),
           ],
@@ -783,8 +781,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     final evidence = bill['evidence']?.toString();
     final evidenceNote = (bill['evidenceNote'] ?? '').toString();
     final total = (bill['total'] as num?)?.toDouble() ?? 0;
-    final isPending = (_pendingDecl?.billIds ?? const <String>[])
-        .contains((bill['id'] ?? '').toString());
+    final billId = (bill['id'] ?? '').toString();
+    final isPending =
+        _pendingDecls.any((d) => d.billIds.contains(billId));
     final paid = (bill['paid'] as num?)?.toDouble() ?? 0;
     final balance = (bill['balance'] as num?)?.toDouble() ?? 0;
 
@@ -1021,7 +1020,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     final gateway = PaymentGateway.isConfigured;
     final hasQr = qr != null && qr.isNotEmpty;
     final amount = _payAmount(totalBalance);
-    final pending = _pendingDecl;
+    final pending = _pendingDecls;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1099,7 +1098,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             ),
           ),
           const SizedBox(height: 14),
-          if (pending != null)
+          if (pending.isNotEmpty)
             _pendingPanel(pending, agentPhone)
           else ...[
             if (gateway) ...[
@@ -1229,32 +1228,50 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.qr_code_2_rounded, size: 18, color: _blue),
-              const SizedBox(width: 8),
-              const Text(
-                'Pay by DuitNow / transfer',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: _ink,
-                ),
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setState(() => _showTransfer = !_showTransfer),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  const Icon(Icons.qr_code_2_rounded, size: 18, color: _blue),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Pay by DuitNow / transfer',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: _ink,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Agent confirms',
+                      style:
+                          TextStyle(fontSize: 10.5, color: Color(0xFF92400E)),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _showTransfer
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 20,
+                    color: _muted,
+                  ),
+                ],
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Agent confirms',
-                  style: TextStyle(fontSize: 10.5, color: Color(0xFF92400E)),
-                ),
-              ),
-            ],
+            ),
           ),
+          if (_showTransfer) ...[
           const SizedBox(height: 8),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1306,13 +1323,23 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
               ),
             ),
           ),
+          ],
         ],
       ),
     );
   }
 
   /// What the customer sees between declaring and the agent confirming.
-  Widget _pendingPanel(PendingDeclaration pending, String agentPhone) {
+  Widget _pendingPanel(
+    List<PendingDeclaration> pending,
+    String agentPhone,
+  ) {
+    final total = pending.fold<double>(0, (sum, d) => sum + d.amount);
+    final latest = pending
+        .map((d) => d.at)
+        .reduce((a, b) => a.isAfter(b) ? a : b);
+    final count = pending.length;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1339,15 +1366,52 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                   ),
                 ),
               ),
+              Text(
+                _money(total),
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF92400E),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            'You declared ${_money(pending.amount)} on '
-            '${DateFormat('d MMM, h:mm a').format(pending.at)}. The agent checks '
-            'it against the bank record; the balance above updates as soon as '
-            'they confirm. Nothing more is needed from you.',
+            count == 1
+                ? 'You declared ${_money(total)} on '
+                    '${DateFormat('d MMM, h:mm a').format(latest)}. The agent '
+                    'checks it against the bank record; the balance above '
+                    'updates as soon as they confirm.'
+                : 'You declared $count payments totalling ${_money(total)}; the '
+                    'most recent was ${DateFormat('d MMM, h:mm a').format(latest)}. '
+                    'The agent checks each one against the bank record, and the '
+                    'balance above updates as they confirm.',
             style: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xFF78350F),
+              height: 1.45,
+            ),
+          ),
+          if (count > 1) ...[
+            const SizedBox(height: 8),
+            for (final d in pending)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  '\u2022 ${_money(d.amount)} \u00b7 '
+                  '${DateFormat('d MMM, h:mm a').format(d.at)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF92400E),
+                  ),
+                ),
+              ),
+          ],
+          const SizedBox(height: 4),
+          const Text(
+            'Nothing more is needed from you.',
+            style: TextStyle(
               fontSize: 12.5,
               color: Color(0xFF78350F),
               height: 1.45,
@@ -2078,7 +2142,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                       throw StateError('Claim was not stored');
                     }
                     if (!mounted) return;
-                    rememberDeclaration(
+                    addDeclaration(
                       token: widget.token,
                       amount: amount,
                       billIds: _selected.toList(),
@@ -2088,7 +2152,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     setState(() {
                       _sending = false;
                       _lastError = null;
-                      _pendingDecl = readDeclaration(widget.token);
+                      _pendingDecls = readDeclarations(widget.token);
                     });
                     _toast(
                       'Payment declared. The screenshot was too large to send, '
@@ -2110,7 +2174,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 return;
               }
               if (!mounted) return;
-              rememberDeclaration(
+              addDeclaration(
                 token: widget.token,
                 amount: amount,
                 billIds: _selected.toList(),
@@ -2119,7 +2183,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
               );
               setState(() {
                 _sending = false;
-                _pendingDecl = readDeclaration(widget.token);
+                _pendingDecls = readDeclarations(widget.token);
               });
               _toast('Thank you — the agent will confirm your payment.');
             },

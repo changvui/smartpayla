@@ -243,7 +243,35 @@ class StatementService {
       'autoConfirm': autoConfirm,
       'declaredAt': DateTime.now().toIso8601String(),
     });
+    // The public half: the statement page reads this on any device.
+    if (!autoConfirm) {
+      try {
+        await _statementDoc(token).collection('declarations').doc(id).set({
+          'amount': amount,
+          'billIds': billIds ?? const <String>[],
+          'claimId': id,
+          'status': 'pending',
+          'at': DateTime.now().toIso8601String(),
+        });
+      } catch (_) {
+        // The agent still receives the claim; only the notice is affected.
+      }
+    }
     return true;
+  }
+
+  /// The declarations waiting for the agent, live, readable by the customer.
+  Stream<List<Map<String, dynamic>>> watchDeclarations(String token) {
+    if (!FirebaseRuntime.initialized || token.isEmpty) {
+      return Stream.value(const []);
+    }
+    return _statementDoc(token)
+        .collection('declarations')
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => {'id': doc.id, ...doc.data()})
+            .where((d) => (d['status'] ?? 'pending').toString() == 'pending')
+            .toList());
   }
 
   /// Finds which customer a reference code belongs to.

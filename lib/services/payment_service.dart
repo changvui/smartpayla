@@ -262,14 +262,36 @@ class PaymentService {
       'status': 'confirmed',
       'confirmedAt': DateTime.now().toIso8601String(),
     });
+    await _clearDeclaration(claim);
     return true;
+  }
+
+  /// Removes the public "waiting for the agent" notice for this claim.
+  Future<void> _clearDeclaration(Map<String, dynamic> claim) async {
+    final token = (claim['token'] ?? '').toString();
+    final id = (claim['id'] ?? '').toString();
+    if (token.isEmpty || id.isEmpty) return;
+    try {
+      await _db
+          .collection('statements')
+          .doc(token)
+          .collection('declarations')
+          .doc(id)
+          .delete();
+    } catch (_) {
+      // The notice is cosmetic; never fail a confirmed payment over it.
+    }
   }
 
   Future<void> rejectClaim(String claimId) async {
     if (!FirebaseRuntime.initialized) return;
-    await _db.collection('paymentClaims').doc(claimId).update({
+    final doc = _db.collection('paymentClaims').doc(claimId);
+    final snapshot = await doc.get();
+    final claim = snapshot.data() ?? const <String, dynamic>{};
+    await doc.update({
       'status': 'rejected',
       'confirmedAt': DateTime.now().toIso8601String(),
     });
+    await _clearDeclaration({...claim, 'id': claimId});
   }
 }

@@ -17,6 +17,25 @@ service cloud.firestore {
                                     && request.auth.uid == request.resource.data.ownerUid;
     }
 
+    // What the customer says they paid, readable by anyone holding the token.
+    //
+    // A claim under /paymentClaims is readable only by the agent, because a
+    // visitor has no identity a rule could check. This subcollection is the
+    // public half: it carries the same amount and bill ids, so the statement
+    // page on any device can show "waiting for the agent". The write is limited
+    // to a pending declaration against an existing statement - the customer can
+    // never set a status or touch a balance.
+    match /statements/{token}/declarations/{declarationId} {
+      allow read: if true;
+      allow create: if request.resource.data.amount is number
+                    && request.resource.data.amount > 0
+                    && request.resource.data.status == 'pending'
+                    && exists(/databases/$(database)/documents/statements/$(token));
+      // The agent clears the notice once the money is on the ledger.
+      allow delete: if request.auth != null
+                    && request.auth.uid == get(/databases/$(database)/documents/statements/$(token)).data.ownerUid;
+    }
+
     // Customer name -> token lookup, private to the agent.
     //
     // The rule matches on the `ownerUid` field rather than the document id: a

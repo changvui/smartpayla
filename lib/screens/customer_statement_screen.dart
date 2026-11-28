@@ -71,6 +71,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   late Future<Map<String, dynamic>?> _future;
   bool _declared = false;
   List<PendingDeclaration> _pendingDecls = const [];
+  StreamSubscription<List<Map<String, dynamic>>>? _declSub;
+  bool _liveDeclsSeen = false;
   bool _showTransfer = false;
   Map<String, dynamic>? _data;
   bool _gatewayDeclared = false;
@@ -113,10 +115,20 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _future = _service.fetch(widget.token);
+    // The declarations live under the statement and are readable by token, so
+    // the notice follows the customer to any device without the agent.
+    _declSub = _service.watchDeclarations(widget.token).listen((list) {
+      if (!mounted) return;
+      setState(() {
+        _liveDeclsSeen = true;
+        _pendingDecls = list.map(_toPending).toList();
+      });
+    });
   }
 
   @override
   void dispose() {
+    _declSub?.cancel();
     _gatewayPoll?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -272,9 +284,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         })
         .where((d) => d.amount > 0)
         .toList();
-    _pendingDecls = mirrored.isNotEmpty
-        ? mirrored
-        : readDeclarations(widget.token);
+    if (!_liveDeclsSeen) {
+      _pendingDecls = mirrored.isNotEmpty
+          ? mirrored
+          : readDeclarations(widget.token);
+    }
 
     if (_paidNow == 0) {
       final pending = readPendingPayment(widget.token);
@@ -1829,6 +1843,18 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
         SnackBar(content: Text('Payment recorded elsewhere: $error')),
       );
     }
+  }
+
+  PendingDeclaration _toPending(Map<String, dynamic> entry) {
+    final at = DateTime.tryParse((entry['at'] ?? '').toString());
+    return PendingDeclaration(
+      amount: (entry['amount'] as num?)?.toDouble() ?? 0,
+      billIds: (entry['billIds'] as List? ?? const [])
+          .map((x) => x.toString())
+          .toList(),
+      expectedTotal: 0,
+      at: at ?? DateTime.now(),
+    );
   }
 
   double _totalFrom(Map<String, dynamic> data) {

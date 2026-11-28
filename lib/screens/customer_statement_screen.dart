@@ -1110,13 +1110,24 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   }) {
     final gateway = PaymentGateway.isConfigured;
     final hasQr = qr != null && qr.isNotEmpty;
-    final amount = _payAmount(totalBalance);
     final pending = _pendingDecls;
     final declaredTotal =
         pending.fold<double>(0, (sum, d) => sum + d.amount);
-    // What is still payable now: the ledger balance minus what is waiting for
-    // the agent. Paying the full balance twice would overpay the bill.
-    final payableNow = (amount - declaredTotal).clamp(0.0, amount).toDouble();
+
+    // The ledger balance, and what is actually left to charge: money the
+    // customer already declared is waiting for the agent, so paying it again
+    // would overpay the bill.
+    final balance = totalBalance;
+    final remaining = (balance - declaredTotal).clamp(0.0, balance).toDouble();
+
+    // "Pay in full" means the rest, not the whole balance; a typed amount is
+    // what the customer wants to pay now, capped at that remainder. One number
+    // is used for the headline and for the button, so the two cannot disagree.
+    final entered = _customAmount
+        ? (double.tryParse(_customAmountText.replaceAll(',', '.')) ?? 0)
+        : remaining;
+    final payableNow = entered.clamp(0.0, remaining).toDouble();
+    final cappedAt = _customAmount && entered > remaining + 0.005;
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1138,7 +1149,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           ),
           const SizedBox(height: 2),
           Text(
-            _payingLabel(bills, amount),
+            _payingLabel(bills, payableNow),
             style: const TextStyle(fontSize: 12, color: _muted),
           ),
           const SizedBox(height: 8),
@@ -1146,13 +1157,26 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             child: Column(
               children: [
                 Text(
-                  _money(amount),
+                  _money(payableNow),
                   style: const TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.w800,
                     color: _ink,
                   ),
                 ),
+                if (cappedAt)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      'Maximum now is ${_money(remaining)}; '
+                      '${_money(declaredTotal)} is already waiting for the agent.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF92400E),
+                      ),
+                    ),
+                  ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1218,7 +1242,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
               const SizedBox(height: 12),
             ],
             if (hasQr)
-              _transferOption(qr, reconCode, bills, amount)
+              _transferOption(qr, reconCode, bills, payableNow)
             else
               _noQrNote(),
           ],
@@ -1288,7 +1312,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _sending ? null : () => _payNowDialog(amount),
+              onPressed:
+                  _sending || amount <= 0 ? null : () => _payNowDialog(amount),
               style: FilledButton.styleFrom(
                 backgroundColor: _blue,
                 padding: const EdgeInsets.symmetric(vertical: 13),
@@ -1407,7 +1432,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _sending ? null : () => _declareDialog(amount),
+              onPressed:
+                  _sending || amount <= 0 ? null : () => _declareDialog(amount),
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF92400E),
                 side: const BorderSide(color: Color(0xFFFDE68A)),

@@ -293,14 +293,26 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     // Declared money is not confirmed money, but the customer should see it
     // against the bill it will settle: allocate it oldest bill first, exactly
     // as the ledger will.
-    final pendingByBill = <String, double>{};
+    // Oldest bill first, the same order the ledger uses, so the customer sees
+    // which bill the declared money will settle.
+    final pendingForBill = <String, List<PendingDeclaration>>{};
     var leftToAllocate =
         _pendingDecls.fold<double>(0, (sum, d) => sum + d.amount);
     for (final bill in bills) {
       if (leftToAllocate <= 0) break;
+      final id = (bill['id'] ?? '').toString();
       final balance = (bill['balance'] as num?)?.toDouble() ?? 0;
       final take = balance < leftToAllocate ? balance : leftToAllocate;
-      pendingByBill[(bill['id'] ?? '').toString()] = take;
+      // Keep the declarations that fall inside this bill, newest last.
+      final held = <PendingDeclaration>[];
+      var room = take;
+      for (final decl in _pendingDecls) {
+        if (room <= 0) break;
+        if (held.contains(decl)) continue;
+        held.add(decl);
+        room -= decl.amount;
+      }
+      pendingForBill[id] = held;
       leftToAllocate -= take;
     }
 
@@ -435,8 +447,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 (bills[i]['id'] ?? '').toString(),
               ),
               onToggle: () => _toggleBill(i, bills),
-              pendingAmount:
-                  pendingByBill[(bills[i]['id'] ?? '').toString()] ?? 0,
+              pending: pendingForBill[
+                      (bills[i]['id'] ?? '').toString()] ??
+                  const [],
             ),
             const SizedBox(height: 10),
           ],
@@ -821,8 +834,10 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     Map<String, dynamic> bill, {
     required bool selected,
     required VoidCallback onToggle,
-    double pendingAmount = 0,
+    List<PendingDeclaration> pending = const [],
   }) {
+    final pendingAmount =
+        pending.fold<double>(0, (sum, d) => sum + d.amount);
     final status = (bill['status'] ?? 'Unpaid').toString();
     final color = _statusColor(status);
     final daysOverdue = (bill['daysOverdue'] as num?)?.toInt() ?? 0;
@@ -877,19 +892,30 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                     ),
                   ),
               if (isPending) ...[
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: const Text(
-                    'Pending',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF92400E),
+                InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () => _showPendingDetail(bill, pending),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Pending',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF92400E),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right_rounded,
+                            size: 14, color: Color(0xFF92400E)),
+                      ],
                     ),
                   ),
                 ),
@@ -1402,112 +1428,152 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   }
 
   /// What the customer sees between declaring and the agent confirming.
+  /// A one-line summary under the amount; the detail lives on the bill card.
   Widget _pendingPanel(
     List<PendingDeclaration> pending,
     String agentPhone,
     double payableNow,
   ) {
     final total = pending.fold<double>(0, (sum, d) => sum + d.amount);
-    final latest = pending
-        .map((d) => d.at)
-        .reduce((a, b) => a.isAfter(b) ? a : b);
-    final count = pending.length;
-
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
         color: const Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFFDE68A)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              const Icon(Icons.hourglass_top_rounded,
-                  size: 18, color: Color(0xFFB45309)),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Waiting for the agent to confirm',
-                  style: TextStyle(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF92400E),
-                  ),
-                ),
-              ),
-              Text(
-                _money(total),
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF92400E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            count == 1
-                ? 'You declared ${_money(total)} on '
-                    '${DateFormat('d MMM, h:mm a').format(latest)}. The agent '
-                    'checks it against the bank record; the balance above '
-                    'updates as soon as they confirm.'
-                : 'You declared $count payments totalling ${_money(total)}; the '
-                    'most recent was ${DateFormat('d MMM, h:mm a').format(latest)}. '
-                    'The agent checks each one against the bank record, and the '
-                    'balance above updates as they confirm.',
-            style: const TextStyle(
-              fontSize: 12.5,
-              color: Color(0xFF78350F),
-              height: 1.45,
-            ),
-          ),
-          if (count > 1) ...[
-            const SizedBox(height: 8),
-            for (final d in pending)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  '\u2022 ${_money(d.amount)} \u00b7 '
-                  '${DateFormat('d MMM, h:mm a').format(d.at)}',
+          const Icon(Icons.hourglass_top_rounded,
+              size: 18, color: Color(0xFFB45309)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_money(total)} declared \u00b7 waiting for the agent',
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
                     color: Color(0xFF92400E),
                   ),
                 ),
-              ),
-          ],
-          const SizedBox(height: 4),
-          Text(
-            payableNow > 0
-                ? 'You can still pay the rest now - ${_money(payableNow)} - or '
-                    'wait for the agent to confirm what you declared.'
-                : 'Nothing more is needed from you.',
-            style: const TextStyle(
-              fontSize: 12.5,
-              color: Color(0xFF78350F),
-              height: 1.45,
+                const SizedBox(height: 2),
+                Text(
+                  payableNow > 0
+                      ? 'You can still pay the rest now \u2014 ${_money(payableNow)} \u2014 '
+                          'or wait for the confirmation.'
+                      : 'The balance updates when the agent confirms.',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF78350F),
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
+          TextButton(
+            onPressed: () => _showPendingDetail(const {'billNo': ''}, pending),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF92400E),
+            ),
+            child: const Text('Details', style: TextStyle(fontSize: 12.5)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPendingDetail(
+    Map<String, dynamic> bill,
+    List<PendingDeclaration> pending,
+  ) {
+    final billNo = (bill['billNo'] ?? '').toString();
+    final total = pending.fold<double>(0, (sum, d) => sum + d.amount);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          billNo.isEmpty ? 'Pending payments' : 'Pending for $billNo',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        ),
+        content: SizedBox(
+          width: 340,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              OutlinedButton.icon(
-                onPressed:
-                    agentPhone.isEmpty ? null : () => _contact(agentPhone),
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF92400E),
-                  side: const BorderSide(color: Color(0xFFFDE68A)),
+              const Text(
+                'These transfer payments are waiting for the agent to check '
+                'them against the bank record.',
+                style: TextStyle(fontSize: 12.5, height: 1.45),
+              ),
+              const SizedBox(height: 12),
+              for (final d in pending)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          DateFormat('d MMM, h:mm a').format(d.at),
+                          style: const TextStyle(fontSize: 12.5),
+                        ),
+                      ),
+                      Text(
+                        _money(d.amount),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: const Text(
+                          'Waiting',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: Color(0xFF92400E),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                label: const Text('Contact the agent',
-                    style: TextStyle(fontSize: 12.5)),
+              const Divider(height: 18),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Total waiting',
+                      style: TextStyle(fontSize: 12.5, color: _muted),
+                    ),
+                  ),
+                  Text(
+                    _money(total),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ),
             ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
           ),
         ],
       ),

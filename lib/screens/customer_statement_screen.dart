@@ -267,27 +267,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
       token: widget.token,
       snapshotTotal: snapshotTotal,
     );
-    // The agent mirrors waiting declarations onto the snapshot, so any device
-    // shows them; the local list only fills in before that write lands.
-    final mirrored = (data['pendingDeclarations'] as List? ?? const [])
-        .whereType<Map>()
-        .map((e) {
-          final at = DateTime.tryParse((e['at'] ?? '').toString());
-          return PendingDeclaration(
-            amount: (e['amount'] as num?)?.toDouble() ?? 0,
-            billIds: (e['billIds'] as List? ?? const [])
-                .map((x) => x.toString())
-                .toList(),
-            expectedTotal: 0,
-            at: at ?? DateTime.now(),
-          );
-        })
-        .where((d) => d.amount > 0)
-        .toList();
+    // The declarations subcollection is the truth: it is deleted when the
+    // agent confirms. The local copy only covers the second before that write
+    // lands, and it is dropped as soon as the snapshot moves.
     if (!_liveDeclsSeen) {
-      _pendingDecls = mirrored.isNotEmpty
-          ? mirrored
-          : readDeclarations(widget.token);
+      _pendingDecls = readDeclarations(widget.token);
     }
 
     // Declared money is not confirmed money, but the customer should see it

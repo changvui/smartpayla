@@ -1222,7 +1222,21 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             _pendingPanel(pending, agentPhone, payableNow),
             const SizedBox(height: 14),
           ],
-          ...[
+          if (remaining <= 0.005)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _blueSoft,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Everything you owe is already declared and waiting for the '
+                'agent. Nothing more is due right now.',
+                style: TextStyle(fontSize: 12.5, color: _ink, height: 1.45),
+              ),
+            )
+          else ...[
             if (gateway) ...[
               _cardOption(payableNow),
               const SizedBox(height: 12),
@@ -2092,6 +2106,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   }
 
   Widget _actions(double totalBalance, String agentPhone) {
+    final declared = _pendingDecls.fold<double>(0, (sum, d) => sum + d.amount);
+    final remaining = (totalBalance - declared).clamp(0.0, totalBalance);
     return Column(
       children: [
         if (_declared) _declaredCard(),
@@ -2099,7 +2115,9 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _sending ? null : () => _payNowDialog(totalBalance),
+              onPressed: _sending || remaining <= 0
+                  ? null
+                  : () => _payNowDialog(totalBalance),
               style: FilledButton.styleFrom(
                 backgroundColor: _blue,
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -2143,9 +2161,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     );
   }
 
-  Future<void> _declareDialog(double totalBalance) async {
+  /// [maxAmount] is what is still owed after the declarations already waiting,
+  /// so a customer cannot declare the same money twice.
+  Future<void> _declareDialog(double maxAmount) async {
     final amountController = TextEditingController(
-      text: totalBalance.toStringAsFixed(2),
+      text: maxAmount.toStringAsFixed(2),
     );
     final noteController = TextEditingController();
     String? proof;
@@ -2257,12 +2277,13 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 );
                 return;
               }
-              if (amount > totalBalance + 0.005) {
+              if (amount > maxAmount + 0.005) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      'You cannot pay more than RM '
-                      '${totalBalance.toStringAsFixed(2)}',
+                      'You can declare at most RM '
+                      '${maxAmount.toStringAsFixed(2)}; the rest is already '
+                      'waiting for the agent.',
                     ),
                   ),
                 );

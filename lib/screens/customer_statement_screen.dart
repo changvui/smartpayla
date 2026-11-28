@@ -290,6 +290,20 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           : readDeclarations(widget.token);
     }
 
+    // Declared money is not confirmed money, but the customer should see it
+    // against the bill it will settle: allocate it oldest bill first, exactly
+    // as the ledger will.
+    final pendingByBill = <String, double>{};
+    var leftToAllocate =
+        _pendingDecls.fold<double>(0, (sum, d) => sum + d.amount);
+    for (final bill in bills) {
+      if (leftToAllocate <= 0) break;
+      final balance = (bill['balance'] as num?)?.toDouble() ?? 0;
+      final take = balance < leftToAllocate ? balance : leftToAllocate;
+      pendingByBill[(bill['id'] ?? '').toString()] = take;
+      leftToAllocate -= take;
+    }
+
     if (_paidNow == 0) {
       final pending = readPendingPayment(widget.token);
       if (pending != null) {
@@ -421,6 +435,8 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
                 (bills[i]['id'] ?? '').toString(),
               ),
               onToggle: () => _toggleBill(i, bills),
+              pendingAmount:
+                  pendingByBill[(bills[i]['id'] ?? '').toString()] ?? 0,
             ),
             const SizedBox(height: 10),
           ],
@@ -805,6 +821,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     Map<String, dynamic> bill, {
     required bool selected,
     required VoidCallback onToggle,
+    double pendingAmount = 0,
   }) {
     final status = (bill['status'] ?? 'Unpaid').toString();
     final color = _statusColor(status);
@@ -907,7 +924,13 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             children: [
               _amountColumn('Total', total),
               const SizedBox(width: 18),
-              _amountColumn('Paid', paid),
+              _amountColumn(
+                'Paid',
+                paid,
+                note: pendingAmount > 0
+                    ? 'Pending ${_money(pendingAmount)}'
+                    : null,
+              ),
               const Spacer(),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -984,7 +1007,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     );
   }
 
-  Widget _amountColumn(String label, double value) {
+  Widget _amountColumn(String label, double value, {String? note}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -993,6 +1016,15 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
           _money(value),
           style: const TextStyle(fontSize: 14, color: _ink),
         ),
+        if (note != null)
+          Text(
+            note,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF92400E),
+            ),
+          ),
       ],
     );
   }
@@ -1054,6 +1086,11 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
     final hasQr = qr != null && qr.isNotEmpty;
     final amount = _payAmount(totalBalance);
     final pending = _pendingDecls;
+    final declaredTotal =
+        pending.fold<double>(0, (sum, d) => sum + d.amount);
+    // What is still payable now: the ledger balance minus what is waiting for
+    // the agent. Paying the full balance twice would overpay the bill.
+    final payableNow = (amount - declaredTotal).clamp(0.0, amount).toDouble();
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1131,11 +1168,13 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
             ),
           ),
           const SizedBox(height: 14),
-          if (pending.isNotEmpty)
-            _pendingPanel(pending, agentPhone)
-          else ...[
+          if (pending.isNotEmpty) ...[
+            _pendingPanel(pending, agentPhone, payableNow),
+            const SizedBox(height: 14),
+          ],
+          ...[
             if (gateway) ...[
-              _cardOption(amount),
+              _cardOption(payableNow),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -1366,6 +1405,7 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
   Widget _pendingPanel(
     List<PendingDeclaration> pending,
     String agentPhone,
+    double payableNow,
   ) {
     final total = pending.fold<double>(0, (sum, d) => sum + d.amount);
     final latest = pending
@@ -1442,9 +1482,12 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
               ),
           ],
           const SizedBox(height: 4),
-          const Text(
-            'Nothing more is needed from you.',
-            style: TextStyle(
+          Text(
+            payableNow > 0
+                ? 'You can still pay the rest now - ${_money(payableNow)} - or '
+                    'wait for the agent to confirm what you declared.'
+                : 'Nothing more is needed from you.',
+            style: const TextStyle(
               fontSize: 12.5,
               color: Color(0xFF78350F),
               height: 1.45,

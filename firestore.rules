@@ -2,60 +2,91 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Everything under a user's own tree is private to that user: transactions,
-    // payments and customers all live here.
+    // ---------------------------------------------------------------------
+    // 1. The agent's own tree: transactions, payments, customers, settings.
+    //
+    // {document=**} matches every subcollection at any depth, so one rule
+    // covers users/{uid}/transactions/x, users/{uid}/payments/y and so on.
+    // Anything not matched by an allow rule below is denied.
+    // ---------------------------------------------------------------------
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null
                          && request.auth.uid == userId;
     }
 
-    // Public statement snapshots, addressed by an unguessable token.
+    // ---------------------------------------------------------------------
+    // 2. Published statements, addressed by an unguessable token.
     //
-    // `get` is public because the customer opens the link without an account.
-    // `list` is denied: without it, a collection scan would enumerate every
-    // customer's statement, which is the one thing the token is meant to prevent.
+    // get vs list matters here more than anywhere else in the file:
+    //   get  = ".doc(token).get()"        - the caller already knows the token
+    //   list = ".collection().get()"      - the caller scans the collection
+    // Writing "allow read" would grant both, and a scan would return every
+    // customer's statement. That is exactly what the token is meant to stop,
+    // so the two verbs are separated deliberately.
+    // ---------------------------------------------------------------------
     match /statements/{token} {
       allow get: if true;
       allow list: if false;
+
+      // request.resource is the document as it will be after the write, so the
+      // owner field cannot be changed to somebody else. The agent may only
+      // publish under their own uid.
       allow create, update: if request.auth != null
                             && request.auth.uid == request.resource.data.ownerUid;
-      // On delete request.resource is null, so ownership is read from the
-      // document being removed.
+
+      // A delete request carries no request.resource (it is null), so ownership
+      // has to be read from the document being removed. Using request.resource
+      // here fails every time, which is a common and silent mistake.
       allow delete: if request.auth != null
                     && request.auth.uid == resource.data.ownerUid;
     }
 
-    // What the customer says they paid, readable by anyone holding the token.
+    // ---------------------------------------------------------------------
+    // 3. What the customer says they paid - the public half of a claim.
     //
-    // A claim under /paymentClaims is readable only by the agent, because a
-    // visitor has no identity a rule could check. This subcollection is the
-    // public half: it carries the same amount and bill ids, so the statement
-    // page on any device can show "waiting for the agent". The write is limited
-    // to a pending declaration against an existing statement - the customer can
-    // never set a status or touch a balance - and to the five known fields.
+    // /paymentClaims is readable only by the agent, because a visitor has no
+    // identity a rule could check against. This subcollection sits under the
+    // token, so "anyone with the link" is the access condition: the same
+    // condition as the statement itself. It lets one phone declare a transfer
+    // and another phone show "waiting for the agent" without the agent online.
+    // ---------------------------------------------------------------------
     match /statements/{token}/declarations/{declarationId} {
       allow get, list: if true;
+
+      // Four checks, each closing a specific hole:
+      //   amount is number   - no strings, no negative numbers
+      //   status == pending  - the customer can never declare "confirmed"
+      //   hasOnly([...])     - no extra fields, so a declaration cannot be
+      //                        shaped into something the agent trusts more
+      //   exists(statement)  - no declarations against deleted statements
       allow create: if request.resource.data.amount is number
                     && request.resource.data.amount > 0
                     && request.resource.data.status == 'pending'
                     && request.resource.data.keys().hasOnly(
                          ['amount', 'billIds', 'claimId', 'status', 'at'])
                     && exists(/databases/$(database)/documents/statements/$(token));
-      // The agent clears the notice once the money is on the ledger.
+
+      // Only the agent may clear the notice, and only after confirming the
+      // money. get() reads the parent statement inside the rule; it counts as
+      // one document read per evaluation.
       allow delete: if request.auth != null
                     && request.auth.uid == get(/databases/$(database)/documents/statements/$(token)).data.ownerUid;
+
+      // A declaration is immutable: to change one, delete it (agent only) and
+      // declare again. This keeps every entry append-only and auditable.
       allow update: if false;
     }
 
-    // Customer name -> token lookup, private to the agent.
+    // ---------------------------------------------------------------------
+    // 4. Customer name -> token lookup, private to the agent.
     //
-    // The rule matches on the `ownerUid` field rather than the document id: a
-    // list query can only be authorised when the constraint it filters on is
-    // visible to the rules engine, and `docId.split()` is not.
+    // The document id is "<ownerUid>__<customer-key>". Two verbs again:
+    //   get  - the document may not exist yet, so resource is null and reading
+    //          a field would throw; the id prefix proves ownership instead.
+    //   list - the field is available, and it is the same fact the query
+    //          filters on, so the rule reads it directly.
+    // ---------------------------------------------------------------------
     match /statementIndex/{docId} {
-      // A single-document read may target a document that does not exist yet,
-      // where `resource` is null and field access would fail; the id prefix is
-      // enough to prove ownership there. A list query still needs the field.
       allow get: if request.auth != null
                  && docId.split('__')[0] == request.auth.uid;
       allow list: if request.auth != null
@@ -66,12 +97,15 @@ service cloud.firestore {
                     && request.auth.uid == resource.data.ownerUid;
     }
 
-    // A customer may only *declare* a payment. It is never counted until the
-    // agent confirms it, so a forged claim cannot change a balance.
+    // ---------------------------------------------------------------------
+    // 5. A customer may only *declare* a payment.
     //
-    // The owner is not trusted from the request: it is read from the statement
-    // the claim points at, so a visitor cannot push claims into another agent's
-    // queue by writing a different ownerUid.
+    // Nothing here changes a balance: a claim becomes money only when the agent
+    // confirms it and writes a payment entry. So the worst a forged claim can
+    // do is appear in the agent's queue - which is why the owner field is not
+    // taken from the request. It is read from the statement the claim points
+    // at, otherwise a visitor could address a claim to another agent's queue.
+    // ---------------------------------------------------------------------
     match /paymentClaims/{claimId} {
       allow create: if request.resource.data.status == 'pending'
                     && request.resource.data.amount is number
@@ -79,9 +113,18 @@ service cloud.firestore {
                     && request.resource.data.token is string
                     && request.resource.data.ownerUid
                        == get(/databases/$(database)/documents/statements/$(request.resource.data.token)).data.ownerUid;
+
+      // Only the owning agent can read the queue or confirm a claim.
       allow read, update: if request.auth != null
                           && request.auth.uid == resource.data.ownerUid;
+
+      // Claims are never deleted: confirmation changes the status, so the
+      // request a customer made stays visible in the record.
       allow delete: if false;
     }
+
+    // Cost note for the report: each get()/exists() above is charged as one
+    // document read per evaluation, so a declaration costs the statement read
+    // plus the claim write. Well inside the free tier for a demonstration.
   }
 }

@@ -9,12 +9,20 @@ service cloud.firestore {
                          && request.auth.uid == userId;
     }
 
-    // Public statement snapshots. Anyone holding the token can read exactly one
-    // customer's open bills; only the owning agent can create or replace it.
+    // Public statement snapshots, addressed by an unguessable token.
+    //
+    // `get` is public because the customer opens the link without an account.
+    // `list` is denied: without it, a collection scan would enumerate every
+    // customer's statement, which is the one thing the token is meant to prevent.
     match /statements/{token} {
-      allow read: if true;
-      allow create, update, delete: if request.auth != null
-                                    && request.auth.uid == request.resource.data.ownerUid;
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == request.resource.data.ownerUid;
+      // On delete request.resource is null, so ownership is read from the
+      // document being removed.
+      allow delete: if request.auth != null
+                    && request.auth.uid == resource.data.ownerUid;
     }
 
     // What the customer says they paid, readable by anyone holding the token.
@@ -24,16 +32,19 @@ service cloud.firestore {
     // public half: it carries the same amount and bill ids, so the statement
     // page on any device can show "waiting for the agent". The write is limited
     // to a pending declaration against an existing statement - the customer can
-    // never set a status or touch a balance.
+    // never set a status or touch a balance - and to the five known fields.
     match /statements/{token}/declarations/{declarationId} {
-      allow read: if true;
+      allow get, list: if true;
       allow create: if request.resource.data.amount is number
                     && request.resource.data.amount > 0
                     && request.resource.data.status == 'pending'
+                    && request.resource.data.keys().hasOnly(
+                         ['amount', 'billIds', 'claimId', 'status', 'at'])
                     && exists(/databases/$(database)/documents/statements/$(token));
       // The agent clears the notice once the money is on the ledger.
       allow delete: if request.auth != null
                     && request.auth.uid == get(/databases/$(database)/documents/statements/$(token)).data.ownerUid;
+      allow update: if false;
     }
 
     // Customer name -> token lookup, private to the agent.
@@ -57,11 +68,17 @@ service cloud.firestore {
 
     // A customer may only *declare* a payment. It is never counted until the
     // agent confirms it, so a forged claim cannot change a balance.
+    //
+    // The owner is not trusted from the request: it is read from the statement
+    // the claim points at, so a visitor cannot push claims into another agent's
+    // queue by writing a different ownerUid.
     match /paymentClaims/{claimId} {
       allow create: if request.resource.data.status == 'pending'
                     && request.resource.data.amount is number
                     && request.resource.data.amount > 0
-                    && exists(/databases/$(database)/documents/statements/$(request.resource.data.token));
+                    && request.resource.data.token is string
+                    && request.resource.data.ownerUid
+                       == get(/databases/$(database)/documents/statements/$(request.resource.data.token)).data.ownerUid;
       allow read, update: if request.auth != null
                           && request.auth.uid == resource.data.ownerUid;
       allow delete: if false;

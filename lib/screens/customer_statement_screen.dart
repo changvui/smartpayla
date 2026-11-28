@@ -255,7 +255,26 @@ class _CustomerStatementScreenState extends State<CustomerStatementScreen>
       token: widget.token,
       snapshotTotal: snapshotTotal,
     );
-    _pendingDecls = readDeclarations(widget.token);
+    // The agent mirrors waiting declarations onto the snapshot, so any device
+    // shows them; the local list only fills in before that write lands.
+    final mirrored = (data['pendingDeclarations'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) {
+          final at = DateTime.tryParse((e['at'] ?? '').toString());
+          return PendingDeclaration(
+            amount: (e['amount'] as num?)?.toDouble() ?? 0,
+            billIds: (e['billIds'] as List? ?? const [])
+                .map((x) => x.toString())
+                .toList(),
+            expectedTotal: 0,
+            at: at ?? DateTime.now(),
+          );
+        })
+        .where((d) => d.amount > 0)
+        .toList();
+    _pendingDecls = mirrored.isNotEmpty
+        ? mirrored
+        : readDeclarations(widget.token);
 
     if (_paidNow == 0) {
       final pending = readPendingPayment(widget.token);

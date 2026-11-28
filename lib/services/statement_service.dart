@@ -42,6 +42,30 @@ class StatementService {
   DocumentReference<Map<String, dynamic>> _statementDoc(String token) =>
       _db.collection('statements').doc(token);
 
+  /// Publishes the declarations that are waiting for the agent onto the
+  /// statement document.
+  ///
+  /// The notice has to survive a different device, so it cannot live only in
+  /// the customer's browser: the agent client writes this summary, and any
+  /// visitor holding the token reads it from the snapshot.
+  Future<void> publishPending({
+    required String token,
+    required List<Map<String, dynamic>> entries,
+  }) async {
+    if (!FirebaseRuntime.initialized || token.isEmpty) return;
+    try {
+      await _statementDoc(token).set(
+        {
+          'pendingDeclarations': entries,
+          'pendingUpdatedAt': DateTime.now().toIso8601String(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
+      // Best effort: the declaring device still shows its local copy.
+    }
+  }
+
   /// Publishes (or refreshes) the statement for one customer and returns the
   /// token. The token is reused so the customer does not end up with several
   /// links for the same account.
